@@ -53,6 +53,13 @@ model User {
   deviceSessions DeviceSession[] @relation("DeviceSessionUser")
   deviceAnalytics DeviceAnalytics[] @relation("DeviceAnalyticsUser")
   
+  // Epic-08 Relations
+  userSessions UserSession[]
+  auditLogs AuditLog[] @relation("AuditLogUser")
+  roleChangeRequests RoleChangeRequest[] @relation("RoleChangeRequestUser")
+  requestedRoleChanges RoleChangeRequest[] @relation("RoleChangeRequestRequester")
+  reviewedRoleChanges RoleChangeRequest[] @relation("RoleChangeRequestReviewer")
+  
   @@map("users")
 }
 
@@ -96,6 +103,12 @@ model Organization {
   offlineCaches OfflineCache[]
   syncJobs SyncJob[]
   deviceAnalytics DeviceAnalytics[]
+  
+  // Epic-08 Relations
+  auditLogs AuditLog[]
+  permissionMatrices PermissionMatrix[]
+  roleChangeRequests RoleChangeRequest[] @relation("RoleChangeRequestOrganization")
+  oidcClients OIDCClient[] @relation("OIDCClientOrganization")
   
   @@map("organizations")
 }
@@ -1899,4 +1912,216 @@ enum RemoteCommandStatus {
   ACKNOWLEDGED
   COMPLETED
   FAILED
+}
+
+// Epic-08: USER/ADMIN MANAGEMENT & AUDIT
+
+model UserSession {
+  id                String @id @default(cuid())
+  userId            String
+  sessionId         String @unique
+  clientId          String
+  issuer            OIDCIssuer
+  accessToken       String? // Encrypted/stored securely
+  refreshToken      String? // Encrypted/stored securely
+  idToken           String? // Encrypted/stored securely
+  organizationContext String // JSON of current organization context
+  permissions       String[] // Array of current permissions
+  loginTime         DateTime @default(now())
+  lastActivity      DateTime @default(now())
+  expiresAt         DateTime
+  isActive          Boolean @default(true)
+  ipAddress         String?
+  userAgent         String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("user_sessions")
+  @@index([userId])
+  @@index([sessionId])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id               String @id @default(cuid())
+  requestId        String // Unique request identifier
+  correlationId    String? // For tracing across services
+  
+  // Who
+  userId           String? // null for system events
+  userEmail        String?
+  userRole         String?
+  organizationId   String?
+  clientId         String? // OIDC client
+  
+  // What
+  eventType        AuditEventType
+  action           String // Specific action taken
+  resource         String // Resource accessed/modified
+  resourceId       String? // ID of the resource
+  resourceType     ResourceType?
+  
+  // When
+  timestamp        DateTime @default(now())
+  duration         Int? // Milliseconds
+  
+  // Where
+  ipAddress        String?
+  userAgent        String?
+  endpoint         String?
+  
+  // Meta
+  severity         AuditSeverity @default(MEDIUM)
+  
+  // Data
+  beforeData       Json? // State before change
+  afterData        Json? // State after change
+  beforeHash       String? // Hash of before state
+  afterHash        String? // Hash of after state
+  previousHash     String? // Previous event hash (integrity chain)
+  
+  // Context
+  tags             String[]
+  metadata         Json?
+  
+  // Integrity
+  integrityHash    String // Hash of entire event for chain verification
+  
+  // Relations
+  organization     Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  user             User? @relation("AuditLogUser", fields: [userId], references: [id], onDelete: SetNull)
+  
+  @@map("audit_logs")
+  @@index([requestId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([timestamp])
+  @@index([eventType])
+  @@index([severity])
+  @@index([previousHash])
+}
+
+model PermissionMatrix {
+  id             String @id @default(cuid())
+  organizationId String
+  role           Role
+  permissions    BigInt // Bitmask of permissions
+  limitations    String[] // Array of limitations
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@unique([organizationId, role])
+  @@map("permission_matrices")
+  @@index([organizationId])
+  @@index([role])
+}
+
+model RoleChangeRequest {
+  id                String @id @default(cuid())
+  userId            String
+  organizationId    String
+  currentRole       Role
+  requestedRole     Role
+  reason            String?
+  requestedBy       String // Current user requesting the change
+  status            RoleChangeStatus @default(PENDING)
+  reviewedBy        String? // Admin who reviewed
+  reviewedAt        DateTime?
+  reviewNotes       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  user User @relation("RoleChangeRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation("RoleChangeRequestOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  requester User @relation("RoleChangeRequestRequester", fields: [requestedBy], references: [id], onDelete: Cascade)
+  reviewer User? @relation("RoleChangeRequestReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  
+  @@map("role_change_requests")
+  @@index([userId])
+  @@index([organizationId])
+  @@index([status])
+}
+
+model OIDCClient {
+  id                String @id @default(cuid())
+  organizationId    String
+  name              String
+  clientId          String @unique
+  clientSecret      String // Encrypted
+  issuer            OIDCIssuer
+  redirectUris      String[] // Array of allowed redirect URIs
+  scopes            String[] // Array of allowed scopes
+  isActive          Boolean @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation("OIDCClientOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@map("oidc_clients")
+  @@index([organizationId])
+  @@index([clientId])
+}
+
+// Epic-08 Enums
+
+enum OIDCIssuer {
+  Auth0
+  Entra
+  Keycloak
+  Custom
+}
+
+enum AuditEventType {
+  AUTHENTICATION
+  AUTHORIZATION
+  DATA_ACCESS
+  DATA_MODIFICATION
+  DATA_DELETION
+  PERMISSION_CHANGE
+  ROLE_CHANGE
+  ORGANIZATION_CHANGE
+  SECURITY_EVENT
+  SYSTEM_EVENT
+}
+
+enum AuditSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ResourceType {
+  Manual
+  Chapter
+  Section
+  User
+  Organization
+  Device
+  Workflow
+  Compliance
+}
+
+enum RoleChangeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+// Update existing enums for Epic-08
+enum Role {
+  ADMIN
+  EDITOR
+  REVIEWER
+  READER
 }

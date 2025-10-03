@@ -42,6 +42,11 @@ import { XmlController, XmlParserService, XmlMapperService, XmlExporterService, 
 // Epic-07 Components
 import { EFBController, DeviceService, OfflineCacheService } from './efb/efb.controller';
 
+// Epic-08 Components
+import { AuthController, OIDCService } from './auth/auth.controller';
+import { AuthGuard, SecurityGuard } from './auth/auth.guard';
+import { AuditService } from './audit/audit.service';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -59,6 +64,7 @@ import { EFBController, DeviceService, OfflineCacheService } from './efb/efb.con
     SearchController,
     XmlController,
     EFBController,
+    AuthController,
   ],
   providers: [
     PrismaService,
@@ -83,6 +89,8 @@ import { EFBController, DeviceService, OfflineCacheService } from './efb/efb.con
     XmlDiffService,
     DeviceService,
     OfflineCacheService,
+    OIDCService,
+    AuditService,
   ],
 })
 export class AppModule {}

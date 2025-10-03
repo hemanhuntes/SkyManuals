@@ -2005,3 +2005,357 @@ export const RemoteCommandSchema = z.object({
 });
 
 export type RemoteCommand = z.infer<typeof RemoteCommandSchema>;
+
+// ===============================================
+// EPIC-08: USER/ADMIN MANAGEMENT & AUDIT
+// ===============================================
+
+// OIDC Authentication Types
+export const OIDCIssuerSchema = z.enum(['Auth0', 'Entra', 'Keycloak', 'Custom']);
+export type OIDCIssuer = z.infer<typeof OIDCIssuerSchema>;
+
+export const OIDCTokenTypeSchema = z.enum(['access_token', 'id_token', 'refresh_token']);
+export type OIDCTokenType = z.infer<typeof OIDCTokenTypeSchema>;
+
+export const JWTPayloadSchema = z.object({
+  sub: z.string(), // Subject (user ID)
+  iss: z.string(), // Issuer
+  aud: z.string(), // Audience
+  exp: z.number(), // Expiration
+  iat: z.number(), // Issued At
+  auth_time: z.number().optional(), // Authentication time
+  
+  // Custom claims
+  email: z.string().email(),
+  name: z.string(),
+  org_roles: z.record(z.object({
+    organizationId: z.string(),
+    organizationName: z.string(),
+    role: z.enum(['ADMIN', 'EDITOR', 'REVIEWER', 'READER']),
+    permissions: z.array(z.string()),
+  })),
+  primary_org: z.string(), // Primary organization ID
+  
+  // Platform claims
+  client_id: z.string().optional(),
+  scope: z.string().optional(),
+});
+
+export type JWTPayload = z.infer<typeof JWTPayloadSchema>;
+
+// Organization Role Management
+export const OrgRoleSchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  userId: z.string(),
+  role: z.enum(['ADMIN', 'EDITOR', 'REVIEWER', 'READER']),
+  grantedBy: z.string().optional(), // User ID who granted this role
+  grantedAt: z.string(),
+  expiresAt: z.string().optional(),
+  isActive: z.boolean().default(true),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export type OrgRole = z.infer<typeof OrgRoleSchema>;
+
+export const RoleChangeRequestSchema = z.object({
+  userId: z.string(),
+  organizationId: z.string(),
+  requestedRole: z.enum(['ADMIN', 'EDITOR', 'REVIEWER', 'READER']),
+  reason: z.string().optional(),
+  requestedBy: z.string(), // Current user requesting the change
+});
+
+export type RoleChangeRequest = z.infer<typeof RoleChangeRequestSchema>;
+
+// Permission System
+export const PermissionSchema = z.enum([
+  // Manual permissions
+  'manual:read',
+  'manual:write',
+  'manual:delete',
+  'manual:publish',
+  
+  // Chapter permissions  
+  'chapter:read',
+  'chapter:write',
+  'chapter:delete',
+  
+  // Section permissions
+  'section:read',
+  'section:write',
+  'section:delete',
+  
+  // Workflow permissions
+  'workflow:read',
+  'workflow:write',
+  'workflow:execute',
+  'workflow:approve',
+  
+  // EFB permissions
+  'device:read',
+  'device:write',
+  'device:manage',
+  
+  // Compliance permissions
+  'compliance:read',
+  'compliance:write',
+  'compliance:manage',
+  
+  // User management permissions
+  'user:read',
+  'user:write',
+  'user:manage_roles',
+  
+  // Organization management
+  'org:read',
+  'org:write',
+  'org:manage',
+  
+  // Audit permissions
+  'audit:read',
+  'audit:export',
+  
+  // Search permissions
+  'search:read',
+  'search:index',
+  
+  // XML permissions
+  'xml:read',
+  'xml:write',
+  'xml:validate',
+]);
+
+export type Permission = z.infer<typeof PermissionSchema>;
+
+export const PermissionMatrixSchema = z.record(
+  z.enum(['ADMIN', 'EDITOR', 'REVIEWER', 'READER']),
+  z.object({
+    permissions: z.number(), // Bitmask of permissions
+    limitations: z.array(z.string()).optional(),
+  })
+);
+
+export type PermissionMatrix = z.infer<typeof PermissionMatrixSchema>;
+
+// Audit System Types
+export const AuditEventTypeSchema = z.enum([
+  'AUTHENTICATION',
+  'AUTHORIZATION',
+  'DATA_ACCESS',
+  'DATA_MODIFICATION',
+  'DATA_DELETION',
+  'PERMISSION_CHANGE',
+  'ROLE_CHANGE',
+  'ORGANIZATION_CHANGE',
+  'SECURITY_EVENT',
+  'SYSTEM_EVENT',
+]);
+
+export type AuditEventType = z.infer<typeof AuditEventTypeSchema>;
+
+export const AuditSeveritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
+export type AuditSeverity = z.infer<typeof AuditSeveritySchema>;
+
+export const AuditEventSchema = z.object({
+  id: z.string(),
+  requestId: z.string(), // Unique request identifier
+  correlationId: z.string().optional(), // For tracing across services
+  
+  // Who
+  userId: z.string().optional(), // null for system events
+  userEmail: z.string().optional(),
+  userRole: z.string().optional(),
+  organizationId: z.string().optional(),
+  clientId: z.string().optional(), // OIDC client
+  
+  // What
+  eventType: AuditEventTypeSchema,
+  action: z.string(), // Specific action taken
+  resource: z.string(), // Resource accessed/modified
+  resourceId: z.string().optional(), // ID of the resource
+  resourceType: z.enum(['Manual', 'Chapter', 'Section', 'User', 'Organization', 'Device', 'Workflow', 'Compliance']).optional(),
+  
+  // When
+  timestamp: z.string(),
+  duration: z.number().optional(), // Milliseconds
+  
+  // Where
+  ipAddress: z.string().optional(),
+  userAgent: z.string().optional(),
+  endpoint: z.string().optional(),
+  
+  // Meta
+  severity: AuditSeveritySchema.default('MEDIUM'),
+  
+  // Data
+  beforeData: z.unknown().optional(), // State before change
+  afterData: z.unknown().optional(), // State after change
+  beforeHash: z.string().optional(), // Hash of before state
+  afterHash: z.string().optional(), // Hash of after state
+  previousHash: z.string().optional(), // Previous event hash (integrity chain)
+  
+  // Context
+  tags: z.array(z.string()).optional(),
+  metadata: z.record(z.unknown()).optional(),
+  
+  // Integrity
+  integrityHash: z.string(), // Hash of entire event for chain verification
+});
+
+export type AuditEvent = z.infer<typeof AuditEventSchema>;
+
+// Organization Switcher Types
+export const OrganizationContextSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  role: z.enum(['ADMIN', 'EDITOR', 'REVIEWER', 'READER']),
+  permissions: z.array(PermissionSchema),
+  isDefault: z.boolean().default(false),
+});
+
+export type OrganizationContext = z.infer<typeof OrganizationContextSchema>;
+
+export const UserSessionSchema = z.object({
+  userId: z.string(),
+  email: z.string(),
+  name: z.string(),
+  currentOrganization: OrganizationContextSchema,
+  availableOrganizations: z.array(OrganizationContextSchema),
+  permissions: z.array(PermissionSchema),
+  jwtExpiresAt: z.string(),
+  sessionId: z.string(),
+  clientId: z.string(),
+  loginTime: z.string(),
+});
+
+export type UserSession = z.infer<typeof UserSessionSchema>;
+
+// API Request Context Types
+export const RequestContextSchema = z.object({
+  requestId: z.string(),
+  correlationId: z.string().optional(),
+  userId: z.string().optional(),
+  organizationId: z.string(),
+  userRole: z.string().optional(),
+  permissions: z.array(PermissionSchema),
+  ipAddress: z.string().optional(),
+  userAgent: z.string().optional(),
+  timestamp: z.string(),
+});
+
+export type RequestContext = z.infer<typeof RequestContextSchema>;
+
+// Middleware Types
+export const OrgHeaderSchema = z.object({
+  'x-org-id': z.string(),
+  'x-request-id': z.string().optional(),
+  'correlation-id': z.string().optional(),
+});
+
+export type OrgHeader = z.infer<typeof OrgHeaderSchema>;
+
+// Authentication Flow Types
+export const LoginRequestSchema = z.object({
+  issuer: OIDCIssuerSchema,
+  clientId: z.string(),
+  redirectUri: z.string().url(),
+  scopes: z.array(z.string()).default(['openid', 'profile', 'email']),
+});
+
+export type LoginRequest = z.infer<typeof LoginRequestSchema>;
+
+export const AuthCallbackSchema = z.object({
+  code: z.string(),
+  state: z.string(),
+  iss: z.string(),
+  clientId: z.string(),
+});
+
+export type AuthCallback = z.infer<typeof AuthCallbackSchema>;
+
+export const TokenResponseSchema = z.object({
+  access_token: z.string(),
+  id_token: z.string(),
+  refresh_token: z.string().optional(),
+  token_type: z.string().default('Bearer'),
+  expires_in: z.number(),
+  scope: z.string(),
+});
+
+export type TokenResponse = z.infer<typeof TokenResponseSchema>;
+
+// User Management Types
+export const UserUpdateRequestSchema = z.object({
+  name: z.string().optional(),
+  email: z.string().email().optional(),
+  defaultOrganizationId: z.string().optional(),
+  preferences: z.record(z.unknown()).optional(),
+});
+
+export type UserUpdateRequest = z.infer<typeof UserUpdateRequestSchema>;
+
+export const BulkRoleUpdateSchema = z.object({
+  userIds: z.array(z.string()),
+  organizationId: z.string(),
+  role: z.enum(['ADMIN', 'EDITOR', 'REVIEWER', 'READER']),
+  action: z.enum(['GRANT', 'REVOKE', 'UPDATE']),
+  reason: z.string().optional(),
+});
+
+export type BulkRoleUpdate = z.infer<typeof BulkRoleUpdateSchema>;
+
+// Audit Export Types
+export const AuditExportRequestSchema = z.object({
+  startDate: z.string(),
+  endDate: z.string(),
+  filters: z.object({
+    userIds: z.array(z.string()).optional(),
+    organizationIds: z.array(z.string()).optional(),
+    eventTypes: z.array(AuditEventTypeSchema).optional(),
+    severities: z.array(AuditSeveritySchema).optional(),
+    includeBeforeAfter: z.boolean().default(false),
+  }),
+  format: z.enum(['json', 'csv', 'excel']).default('json'),
+});
+
+export type AuditExportRequest = z.infer<typeof AuditExportRequestSchema>;
+
+export const AuditIntegrityCheckSchema = z.object({
+  startDate: z.string(),
+  endDate: z.string(),
+  organizationId: z.string().optional(),
+  verifyHashChain: z.boolean().default(true),
+});
+
+export type AuditIntegrityCheck = z.infer<typeof AuditIntegrityCheckSchema>;
+
+// Permission Check Types
+export const PermissionCheckSchema = z.object({
+  userId: z.string(),
+  organizationId: z.string(),
+  permissions: z.array(PermissionSchema),
+  resourceType: z.string().optional(),
+  resourceId: z.string().optional(),
+});
+
+export type PermissionCheck = z.infer<typeof PermissionCheckSchema>;
+
+export const PermissionCheckResponseSchema = z.object({
+  hasPermissions: z.boolean(),
+  missingPermissions: z.array(PermissionSchema),
+  effectiveRole: z.string().optional(),
+  limitations: z.array(z.string()).optional(),
+});
+
+export type PermissionCheckResponse = z.infer<typeof PermissionCheckResponseSchema>;
+
+export const AuditIntegrityResultSchema = z.object({
+  isValid: z.boolean(),
+  verifiedEvents: z.number(),
+  totalEvents: z.number(),
+  chainBroken: z.boolean(),
+});
+
+export type AuditIntegrityResult = z.infer<typeof AuditIntegrityResultSchema>;
