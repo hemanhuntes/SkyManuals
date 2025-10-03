@@ -1,0 +1,98 @@
+name: Pull Request Validation
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Build preview artifacts
+        run: |
+          docker build -t skymanuals/web:pr-${{ github.event.number }} -f apps/web/Dockerfile .
+          docker build -t skymanuals/api:pr-${{ github.event.number }} -f apps/api/Dockerfile .
+
+  semantic-pull-request:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate PR title
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+          scopes: |
+            web
+            api
+            efb
+            ui
+            types
+            config
+            deps
+            release
+
+  changeset-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for changeset
+        run: |
+          if [ -z "$(ls -A .changeset/*.md 2>/dev/null)" ]; then
+            echo "❌ No changeset found for this PR"
+            echo "Please run 'npm run changeset' to create a changeset"
+            exit 1
+          else
+            echo "✅ Changeset found"
+          fi

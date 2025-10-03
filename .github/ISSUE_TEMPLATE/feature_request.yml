@@ -1,0 +1,73 @@
+name: Feature request
+description: Föreslå en ny funktion eller förbättring
+title: "[FEAT] "
+labels: ["enhancement"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tack för att du föreslår en förbättring till SkyManuals!
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Komponent
+      description: Vilken komponent påverkas?
+      options:
+        - Web App
+        - API
+        - EFB App
+        - Shared Packages
+        - Infrastructure
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem eller behov
+      description: Vad är problemet du försöker lösa?
+      placeholder: Beskriv tydligt vilket problem din funktion löser...
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Föreslagen lösning
+      description: Beskriv din idé för lösningen
+      placeholder: Skriv en tydlig beskrivning av vad du vill att det ska hända...
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativ
+      description: Har du övervägt några alternativ?
+      placeholder: Beskriv andra alternativ eller funktioner du övervägt...
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Prioritet
+      description: Hur viktig är denna funktion?
+      options:
+        - Låg
+        - Medium
+        - Hög
+        - Kritisk
+
+  - type: checkboxes
+    id: additional
+    attributes:
+      label: Ytterligare information
+      options:
+        - label: Jag är villig att bidra till implementeringen
+        - label: Jag kan bistå med design eller UX-insikter
+        - label: Jag kan hjälpa till med testning
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By checking this, you agree to follow our Code of Conduct
+      options:
+        - label: Jag har läst och går med på att följa Code of Conduct
+          required: true

@@ -1,0 +1,77 @@
+name: Bug report
+description: Rapportera ett fel
+title: "[BUG] "
+labels: ["bug"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tack för att du rapporterar detta fel! 
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Vilken version av SkyManuals använder du?
+      placeholder: "ex. v1.2.3"
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Komponent
+      description: Vilken komponent påverkas?
+      options:
+        - Web App
+        - API
+        - EFB App
+        - Shared Packages
+        - Infrastructure
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Problembeskrivning
+      description: Beskriv det fel som uppstår
+      placeholder: En tydlig beskrivning av vad som är fel...
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steg för att återskapa felet
+      description: Hur kan vi återskapa det här fejet?
+      placeholder: |
+        1. Gå till '...'
+        2. Klicka på '...'
+        3. Scroll ned för att se '...'
+        4. Felet visas
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Förväntat beteende
+      description: Vad skulle du förvänta dig att hända istället?
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Faktiskt beteende
+      description: Vad händer istället?
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Loggar
+      description: |
+        Om möjligt, bifoga relevanta loggar eller konsolmeddelanden
+      render: shell
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By checking this, you agree to follow our Code of Conduct
+      options:
+        - label: Jag har läst och går med på att följa Code of Conduct
+          required: true

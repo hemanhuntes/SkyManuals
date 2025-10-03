@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency: release-${{ github.event.number }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create Release Pull Request or Publish Release
+        id: changesets
+        run: |
+          npx changeset version
+          npx changeset publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push to GitHub
+        run: |
+          git add .
+          git commit -m "Version Packages [skip ci]" || echo "No changes to commit"
+          git push origin main
+
+      - name: Create GitHub Release
+        run: |
+          npx changeset tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Docker images
+        run: |
+          docker build -t skymanuals/web:${{ github.sha }} -f apps/web/Dockerfile .
+          docker build -t skymanuals/api:${{ github.sha }} -f apps/api/Dockerfile .
+          docker build -t skymanuals/web:latest -f apps/web/Dockerfile .
+          docker build -t skymanuals/api:latest -f apps/api/Dockerfile .

@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "SkyManuals EFB",
+    "slug": "skymanuals-efb",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.skymanuals.efb"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.skymanuals.efb"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "updates": {
+      "enabled": true,
+      "fallbackToCacheTimeout": 0
+    },
+    "plugins": [
+      "expo-file-system",
+      "expo-secure-store",
+      [
+        "expo-updates",
+        {
+          "expogitRepository": "https://github.com/organization/skymanuals"
+        }
+      ]
+    ]
+  }
+}

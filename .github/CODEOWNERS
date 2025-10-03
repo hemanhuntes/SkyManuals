@@ -1,0 +1,24 @@
+# Global admins
+* @organization/backend-leads @organization/web-leads @organization/mobile-leads
+
+# Backend ownership
+apps/api/ @organization/backend-leads
+*.prisma @organization/backend-leads
+Dockerfile @organization/backend-leads @organization/devops-leads
+docker-compose.yml @organization/backend-leads @organization/devops-leads
+
+# Web ownership  
+apps/web/ @organization/web-leads
+tailwind.config.js @organization/web-leads
+next.config.js @organization/web-leads
+
+# Mobile ownership
+apps/efb/ @organization/mobile-leads
+*.json @organization/mobile-leads
+
+# Shared packages
+packages/ @organization/web-leads @organization/mobile-leads @organization/backend-leads
+
+# Infrastructure and DevOps
+.github/ @organization/devops-leads @organization/backend-leads
+docs/ @organization/web-leads @organization/product-leads

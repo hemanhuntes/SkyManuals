@@ -1,0 +1,35 @@
+{
+  "name": "@skymanuals/web",
+  "version": "0.0.1",
+  "private": true,
+  "description": "SkyManuals web application",
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "clean": "rm -rf .next"
+  },
+  "dependencies": {
+    "@skymanuals/ui": "workspace:*",
+    "@skymanuals/types": "workspace:*",
+    "next": "14.0.4",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "@tiptap/react": "^2.1.13",
+    "@tiptap/starter-kit": "^2.1.13",
+    "tailwindcss": "^3.3.6",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32",
+    "clsx": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "eslint": "^8.0.0",
+    "eslint-config-next": "14.0.4",
+    "typescript": "^5.0.0"
+  }
+}
