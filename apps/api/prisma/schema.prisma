@@ -19,10 +19,19 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
-  // Relations
+  // Epic-01 Relations
   memberships Membership[]
   authoredChangeSets ChangeSet[] @relation("ChangeSetAuthor")
   editorSessions EditorSession[]
+  
+  // Epic-02 Relations
+  initiatedWorkflows WorkflowInstance[] @relation("WorkflowInstanceInitiatedBy")
+  cancelledWorkflows WorkflowInstance[] @relation("WorkflowInstanceCancelledBy")
+  assignedTasks ApprovalTask[]
+  completedTasks ApprovalTask[] @relation("ApprovalTaskCompletedBy")
+  comments Comment[]
+  completedChecklists Checklist[] @relation("ChecklistCompletedBy")
+  notifications Notification[]
   
   @@map("users")
 }
@@ -35,10 +44,15 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
-  // Relations
+  // Epic-01 Relations
   memberships Membership[]
   manuals Manual[]
   templates Template[]
+  
+  // Epic-02 Relations
+  workflowDefinitions WorkflowDefinition[]
+  checklists Checklist[]
+  checklistTemplates ChecklistTemplate[]
   
   @@map("organizations")
 }
@@ -288,4 +302,249 @@ enum ChangeSetStatus {
   APPROVED
   REJECTED
   MERGED
+}
+
+// Epic-02: Configurable Review & Approval Models
+
+model WorkflowDefinition {
+  id             String @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  entityType     EntityType // Which entity this workflow applies to
+  stages         Json // Array of WorkflowStage objects
+  isActive       Boolean @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workflowInstances WorkflowInstance[]
+  
+  @@map("workflow_definitions")
+}
+
+model WorkflowInstance {
+  id                  String @id @default(cuid())
+  workflowDefinitionId String
+  entityType          EntityType
+  entityId            String
+  title               String
+  description         String?
+  initiatedByUserId   String
+  currentStageId      String?
+  status              WorkflowInstanceStatus @default(DRAFT)
+  priority            WorkflowPriority @default(MEDIUM)
+  metadata            Json? // Flexible metadata for workflow context
+  scheduledAt         DateTime?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  cancelledAt         DateTime?
+  cancelledByUserId   String?
+  rejectionReason     String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Relations
+  workflowDefinition WorkflowDefinition @relation(fields: [workflowDefinitionId], references: [id], onDelete: Cascade)
+  initiatedBy User @relation("WorkflowInstanceInitiatedBy", fields: [initiatedByUserId], references: [id], onDelete: Cascade)
+  cancelledBy User? @relation("WorkflowInstanceCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  tasks ApprovalTask[]
+  checklists Checklist[]
+  
+  @@map("workflow_instances")
+}
+
+model ApprovalTask {
+  id               String @id @default(cuid())
+  workflowInstanceId String
+  stageId          String
+  assignedToUserId String
+  entityType       EntityType
+  entityId         String
+  priority         WorkflowPriority @default(MEDIUM)
+  status           TaskStatus @default(PENDING)
+  dueAt            DateTime?
+  completedAt      DateTime?
+  completedByUserId String?
+  commentsCount    Int @default(0)
+  attachments      String[] // Array of attachment IDs
+  metadata         Json? // Flexible metadata for task context
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  workflowInstance WorkflowInstance @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  assignedTo User @relation(fields: [assignedToUserId], references: [id], onDelete: Cascade)
+  completedBy User? @relation("ApprovalTaskCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+  comments Comment[]
+  
+  @@map("approval_tasks")
+}
+
+model Comment {
+  id               String @id @default(cuid())
+  taskId           String
+  userId           String
+  content          String
+  type             CommentType @default(GENERAL)
+  isInternal       Boolean @default(false)
+  attachments      String[] // Array of attachment IDs
+  mentionedUserIds String[] // Array of mentioned user IDs for notifications
+  parentCommentId  String? // For threaded discussions
+  isResolved       Boolean @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  task ApprovalTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentComment Comment? @relation("CommentThread", fields: [parentCommentId], references: [id], onDelete: Cascade)
+  replies Comment[] @relation("CommentThread")
+  
+  @@map("comments")
+}
+
+model Checklist {
+  id               String @id @default(cuid())
+  taskId           String?
+  workflowInstanceId String?
+  title            String
+  description      String?
+  organizationId   String
+  type             ChecklistType @default(AUDIT)
+  templateId       String?
+  items            Json // Array of ChecklistItem objects
+  isComplete       Boolean @default(false)
+  completedAt      DateTime?
+  completedByUserId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  task ApprovalTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  workflowInstance WorkflowInstance? @relation(fields: [workflowInstanceId], references: [id], onDelete: SetNull)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  completedBy User? @relation("ChecklistCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+  
+  @@map("checklists")
+}
+
+model ChecklistTemplate {
+  id             String @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  type           ChecklistType @default(AUDIT)
+  isDefault      Boolean @default(false)
+  items          Json // Array of ChecklistItem objects (without task-specific fields)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@map("checklist_templates")
+}
+
+model Notification {
+  id           String @id @default(cuid())
+  userId       String
+  type         NotificationType
+  title        String
+  message      String
+  channels     NotificationChannel[] // Array of notification channels
+  entityType   EntityTypeNotification?
+  entityId     String?
+  isRead       Boolean @default(false)
+  readAt       DateTime?
+  scheduledFor DateTime? // For delayed/reminder notifications
+  deliveredAt  DateTime?
+  metadata     Json? // Flexible notification metadata
+  createdAt    DateTime @default(now())
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("notifications")
+}
+
+model ApprovalSignature {
+  id               String @id @default(cuid())
+  workflowInstanceId String
+  signerName       String
+  signerRole       String
+  signatureDate    DateTime
+  signaturePath    String? // Path to signature file or hash
+  signaturePayload Json? // Encrypted signature data
+  isValid          Boolean @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  @@map("approval_signatures")
+}
+
+// Epic-02 Enums
+enum WorkflowInstanceStatus {
+  DRAFT
+  IN_PROGRESS
+  APPROVED
+  REJECTED
+  SUSPENDED
+  CANCELLED
+  COMPLETED
+}
+
+enum TaskStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DELEGATED
+  SUSPENDED
+  COMPLETED
+}
+
+enum CommentType {
+  GENERAL
+  APPROVAL_REASON
+  REJECTION_REASON
+  DELEGATION_NOTE
+}
+
+enum ChecklistType {
+  AUDIT
+  REVIEW
+  COMPLIANCE
+  CUSTOM
+}
+
+enum WorkflowPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_DUE_SOON
+  TASK_OVERDUE
+  COMMENT_ADDED
+  WORKFLOW_STATUS_CHANGE
+  APPROVAL_REQUEST
+  REJECTION_WITH_COMMENTS
+  MENTION
+}
+
+enum NotificationChannel {
+  EMAIL
+  WEB_PUSH
+  IN_APP
+  SLACK
+}
+
+enum EntityTypeNotification {
+  TASK
+  WORKFLOW_INSTANCE
+  COMMENT
 }
