@@ -36,6 +36,12 @@ import { SearchService } from './search/search.service';
 import { IndexingService } from './search/indexing.service';
 import { GuardrailsService } from './search/guardrails.service';
 
+// Epic-06 Components
+import { XmlController, XmlParserService, XmlMapperService, XmlExporterService, XmlDiffService } from './xml/xml.controller';
+
+// Epic-07 Components
+import { EFBController, DeviceService, OfflineCacheService } from './efb/efb.controller';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -51,6 +57,8 @@ import { GuardrailsService } from './search/guardrails.service';
     ReaderController,
     ComplianceController,
     SearchController,
+    XmlController,
+    EFBController,
   ],
   providers: [
     PrismaService,
@@ -69,6 +77,12 @@ import { GuardrailsService } from './search/guardrails.service';
     SearchService,
     IndexingService,
     GuardrailsService,
+    XmlParserService,
+    XmlMapperService,
+    XmlExporterService,
+    XmlDiffService,
+    DeviceService,
+    OfflineCacheService,
   ],
 })
 export class AppModule {}

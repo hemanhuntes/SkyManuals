@@ -1539,3 +1539,469 @@ export const ComplianceAnalyticsSchema = z.object({
 });
 
 export type ComplianceAnalytics = z.infer<typeof ComplianceAnalyticsSchema>;
+
+// ===============================================
+// EPIC-07: EFB APP & DEVICE CONTROLS
+// ===============================================
+
+// Device Types
+export const DeviceModelSchema = z.enum(['iPad', 'iPad_Pro', 'iPhone', 'Android_Tablet', 'Android_Phone', 'Windows_Tablet']);
+export type DeviceModel = z.infer<typeof DeviceModelSchema>;
+
+export const DevicePlatformSchema = z.enum(['iOS', 'Android', 'Windows']);
+export type DevicePlatform = z.infer<typeof DevicePlatformSchema>;
+
+export const DeviceStatusSchema = z.enum(['ACTIVE', 'PENDING_ENROLLMENT', 'SUSPENDED', 'DECOMMISSIONED']);
+export type DeviceStatus = z.infer<typeof DeviceStatusSchema>;
+
+export const DeviceNetworkStatusSchema = z.enum(['ONLINE', 'OFFLINE', 'CONNECTING']);
+export type DeviceNetworkStatus = z.infer<typeof DeviceNetworkStatusSchema>;
+
+export const DeviceSchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  userId: z.string().optional(), // Device owner
+  deviceModel: DeviceModelSchema,
+  platform: DevicePlatformSchema,
+  osVersion: z.string(),
+  appVersion: z.string(),
+  deviceName: z.string(),
+  deviceId: z.string(), // Unique device identifier
+  hardwareId: z.string(), // Hardware UUID/serial
+  status: DeviceStatusSchema.default('PENDING_ENROLLMENT'),
+  lastSyncAt: z.string().optional(),
+  lastOnlineAt: z.string().optional(),
+  enrollmentDate: z.string(),
+  installedPolicies: z.array(z.string()), // Policy IDs
+  securityFlags: z.object({
+    isJailbroken: z.boolean().default(false),
+    hasMalware: z.boolean().default(false),
+    encryptionEnabled: z.boolean().default(true),
+    screenLockEnabled: z.boolean().default(false),
+    developerModeEnabled: z.boolean().default(false),
+  }),
+  metadata: z.record(z.unknown()).optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type Device = z.infer<typeof DeviceSchema>;
+
+// Device Policy Types
+export const PolicyTypeSchema = z.enum(['MANUAL_PINNING', 'CACHE_SYNC', 'SECURITY', 'FEATURE_FLAGS']);
+export type PolicyType = z.infer<typeof PolicyTypeSchema>;
+
+export const DevicePolicySchema = z.object({
+  id: z.string(),
+  organizationId: z.string(),
+  createdBy: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  type: PolicyTypeSchema,
+  isActive: z.boolean().default(true),
+  priority: z.number().default(0), // Higher number = higher priority
+  conditions: z.object({
+    deviceModels: z.array(DeviceModelSchema).optional(),
+    platforms: z.array(DevicePlatformSchema).optional(),
+    osVersions: z.array(z.string()).optional(),
+    requireApproval: z.boolean().default(false),
+  }),
+  settings: z.record(z.unknown()), // Policy-specific settings
+  metadata: z.record(z.unknown()).optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type DevicePolicy = z.infer<typeof DevicePolicySchema>;
+
+// Manual Pinning Policy
+export const ManualPinningPolicySchema = z.object({
+  type: z.literal('MANUAL_PINNING'),
+  settings: z.object({
+    manualIds: z.array(z.string()), // Mandatory manuals
+    folderIds: z.array(z.string()).optional(), // Entire folders
+    autoPinNewManuals: z.boolean().default(false),
+    pinByAircraft: z.array(z.string()).optional(), // Auto-pin by aircraft type
+    maxStorageMB: z.number().default(1000), // Storage limit
+    expiration: z.object({
+      enabled: z.boolean().default(true),
+      maxDays: z.number().default(30),
+      autoRefresh: z.boolean().default(true),
+    }),
+  }),
+});
+
+export type ManualPinningPolicy = z.infer<typeof ManualPinningPolicySchema>;
+
+// Cache Sync Policy
+export const CacheSyncPolicySchema = z.object({
+  type: z.literal('CACHE_SYNC'),
+  settings: z.object({
+    syncIntervalHours: z.number().default(24),
+    wifiRequired: z.boolean().default(false),
+    allowCellular: z.boolean().default(true),
+    backgroundSync: z.boolean().default(true),
+    offlineTimeoutHours: z.number().default(72), // Force sync after X hours offline
+    chunkSizeKB: z.number().default(512), // Chunk size for incremental sync
+    compressionEnabled: z.boolean().default(true),
+    encryptionRequired: z.boolean().default(true),
+  }),
+});
+
+export type CacheSyncPolicy = z.infer<typeof CacheSyncPolicySchema>;
+
+// Security Policy
+export const SecurityPolicySchema = z.object({
+  type: z.literal('SECURITY'),
+  settings: z.object({
+    allowScreenshots: z.boolean().default(false),
+    enableWatermarking: z.boolean().default(true),
+    requireBiometrics: z.boolean().default(true),
+    sessionTimeoutMinutes: z.number().default(30),
+    deviceLockoutThreshold: z.number().default(5), // Failed auth attempts
+    allowSharing: z.boolean().default(false),
+    networkRestrictions: z.object({
+      allowedNetworks: z.array(z.string()).optional(),
+      blockUntrustedWifi: z.boolean().default(true),
+      requireVPN: z.boolean().default(false),
+    }),
+    remoteWipeEnabled: z.boolean().default(true),
+  }),
+});
+
+export type SecurityPolicy = z.infer<typeof SecurityPolicySchema>;
+
+// FEATURE_FLAGS Policy
+export const FeatureFlagsPolicySchema = z.object({
+  type: z.literal('FEATURE_FLAGS'),
+  settings: z.object({
+    enabledFeatures: z.array(z.string()), // Feature flag names
+    disabledFeatures: z.array(z.string()),
+    conditionalFeatures: z.record(z.object({
+      enabled: z.boolean(),
+      conditions: z.record(z.unknown()),
+    })),
+  }),
+});
+
+export type FeatureFlagsPolicy = z.infer<typeof FeatureFlagsPolicySchema>;
+
+// Policy Union Type
+export const PolicySettingsSchema = z.union([
+  ManualPinningPolicySchema,
+  CacheSyncPolicySchema,
+  SecurityPolicySchema,
+  FeatureFlagsPolicySchema,
+]);
+
+export type PolicySettings = z.infer<typeof PolicySettingsSchema>;
+
+// Offline Cache Types
+export const ChunkStatusSchema = z.enum(['AVAILABLE', 'DOWNLOADING', 'COMPLETED', 'ERROR', 'EXPIRED']);
+export type ChunkStatus = z.infer<typeof ChunkStatusSchema>;
+
+export const CacheChunkSchema = z.object({
+  id: z.string(),
+  deviceId: z.string(),
+  readerBundleId: z.string(), // Link to ReaderBundle
+  chunkIndex: z.number(),
+  chunkPath: z.string(), // S3/local path
+  chunkChecksum: z.string(), // SHA-256 hash
+  chunkSizeBytes: z.number(),
+  status: ChunkStatusSchema.default('AVAILABLE'),
+  downloadedAt: z.string().optional(),
+  expiresAt: z.string().optional(),
+  error: z.string().optional(),
+  metadata: z.record(z.unknown()).optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type CacheChunk = z.infer<typeof CacheChunkSchema>;
+
+export const CacheManifestSchema = z.object({
+  id: z.string(),
+  deviceId: z.string(),
+  readerBundleId: z.string(),
+  bundleVersion: z.string(),
+  chunkCount: z.number(),
+  totalSizeBytes: z.number(),
+  checksum: z.string(), // Manifest checksum
+  isCompressed: z.boolean().default(true),
+  encryptionKeyId: z.string().optional(), // For encrypted chunks
+  expiresAt: z.string().optional(),
+  lastModified: z.string(),
+  createdAt: z.string(),
+});
+
+export type CacheManifest = z.infer<typeof CacheManifestSchema>;
+
+export const OfflineCacheSchema = z.object({
+  id: z.string(),
+  deviceId: z.string(),
+  organizationId: z.string(),
+  manualId: z.string(),
+  readerBundleId: z.string(),
+  manifestId: z.string().optional(),
+  storagePath: z.string(), // Local storage location
+  totalSizeBytes: z.number(),
+  cachedAt: z.string(),
+  lastAccessedAt: z.string(),
+  accessCount: z.number().default(0),
+  isExpired: z.boolean().default(false),
+  chunkChecksums: z.array(z.object({
+    chunkIndex: z.number(),
+    checksum: z.string(),
+    sizeBytes: z.number(),
+  })),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export type OfflineCache = z.infer<typeof OfflineCacheSchema>;
+
+// Device Sync Types
+export const SyncStatusSchema = z.enum(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'FAILED', 'CANCELLED']);
+export type SyncStatus = z.infer<typeof SyncStatusSchema>;
+
+export const SyncJobSchema = z.object({
+  id: z.string(),
+  deviceId: z.string(),
+  organizationId: z.string(),
+  initiatedBy: z.string(), // User ID
+  type: z.enum(['FULL_SYNC', 'INCREMENTAL_SYNC', 'POLICY_SYNC', 'CACHE_INVALIDATION']),
+  status: SyncStatusSchema.default('PENDING'),
+  progress: z.object({
+    totalItems: z.number().default(0),
+    completedItems: z.number().default(0),
+    failedItems: z.number().default(0),
+    skippedItems: z.number().default(0),
+    percentage: z.number().default(0),
+  }),
+  settings: z.object({
+    manualIds: z.array(z.string()).optional(),
+    forceFreshFetch: z.boolean().default(false),
+    excludeExpired: z.boolean().default(true),
+    chunkSizeKB: z.number().default(512),
+    compressionEnabled: z.boolean().default(true),
+    encryptionEnabled: z.boolean().default(true),
+  }),
+  errors: z.array(z.object({
+    item: z.string(), // Item ID that failed
+    error: z.string(),
+    retryable: z.boolean().default(true),
+  })),
+  startedAt: z.string().optional(),
+  completedAt: z.string().optional(),
+  cancelledAt: z.string().optional(),
+  expiry: z.string().optional(), // Job expiration
+  metadata: z.record(z.unknown()).optional(),
+  createdAt: z.string(),
+});
+
+export type SyncJob = z.infer<typeof SyncJobSchema>;
+
+// EFB App Session Types
+export const DeviceSessionSchema = z.object({
+  id: z.string(),
+  deviceId: z.string(),
+  userId: z.string(),
+  sessionToken: z.string(),
+  isActive: z.boolean().default(true),
+  lastActivityAt: z.string(),
+  geoLocation: z.object({
+    latitude: z.number(),
+    longitude: z.number(),
+    accuracy: z.number(),
+    altitude: z.number().optional(),
+  }).optional(),
+  appContext: z.object({
+    currentManualId: z.string().optional(),
+    currentSectionId: z.string().optional(),
+    lastSearchQuery: z.string().optional(),
+    offlineMode: z.boolean().default(false),
+    networkType: z.enum(['wifi', 'cellular', 'none']).default('none'),
+  }),
+  metadata: z.record(z.unknown()).optional(),
+  createdAt: z.string(),
+});
+
+export type DeviceSession = z.infer<typeof DeviceSessionSchema>;
+
+// Device Analytics Types
+export const DeviceAnalyticsSchema = z.object({
+  id: z.string(),
+  deviceId: z.string(),
+  organizationId: z.string(),
+  userId: z.string(),
+  action: z.enum([
+    'LOGIN',
+    'LOGOUT',
+    'MANUAL_OPEN',
+    'SEARCH_PERFORMED',
+    'OFFLINE_STARTED',
+    'OFFLINE_ENDED',
+    'SYNC_STARTED',
+    'SYNC_COMPLETED',
+    'CACHE_ACCESSED',
+    'HIGHLIGHT_ADDED',
+    'NOTES_ADDED',
+    'POLICY_UPDATED',
+  ]),
+  targetId: z.string().optional(), // Manual ID, search query, etc.
+  metadata: z.record(z.unknown()).optional(),
+  timestamp: z.string(),
+});
+
+export type DeviceAnalytics = z.infer<typeof DeviceAnalyticsSchema>;
+
+// EFB API Request Types
+export const DeviceEnrollmentRequestSchema = z.object({
+  deviceModel: DeviceModelSchema,
+  platform: DevicePlatformSchema,
+  osVersion: z.string(),
+  appVersion: z.string(),
+  deviceName: z.string(),
+  deviceId: z.string(),
+  hardwareId: z.string(),
+  organizationIdentifier: z.string(), // Organization code/domain
+  userId: z.string().optional(), // If pre-authenticated
+  securityInfo: z.object({
+    isJailbroken: z.boolean().default(false),
+    hasDeveloperMode: z.boolean().default(false),
+    encryptionSupported: z.boolean().default(true),
+    biometricAuthSupported: z.boolean().default(false),
+  }),
+});
+
+export type DeviceEnrollmentRequest = z.infer<typeof DeviceEnrollmentRequestSchema>;
+
+export const SyncCheckRequestSchema = z.object({
+  deviceId: z.string(),
+  cachedManifests: z.array(z.object({
+    readerBundleId: z.string(),
+    bundleVersion: z.string(),
+    manifestChecksum: z.string(),
+    chunkChecksums: z.array(z.string()), // Per-chunk checksums
+    lastModified: z.string(),
+  })),
+  status: z.object({
+    networkStatus: DeviceNetworkStatusSchema,
+    batteryLevel: z.number().optional(),
+    availableStorageMB: z.number().optional(),
+    lastSyncAt: z.string().optional(),
+  }),
+});
+
+export type SyncCheckRequest = z.infer<typeof SyncCheckRequestSchema>;
+
+export const SyncResponseSchema = z.object({
+  needsSync: z.boolean(),
+  syncJobs: z.array(z.object({
+    readerBundleId: z.string(),
+    bundleVersion: z.string(),
+    operation: z.enum(['NEW', 'UPDATE', 'DELETE']),
+    chunksToDownload: z.array(z.object({
+      chunkIndex: z.number(),
+      chunkUrl: z.string(),
+      chunkChecksum: z.string(),
+      chunkSizeBytes: z.number(),
+    })),
+    chunksToDelete: z.array(z.number()),
+    priority: z.number().default(0),
+    estimatedSizeMB: z.number(),
+  })),
+  policies: z.array(z.object({
+    policyId: z.string(),
+    policyVersion: z.string(),
+    settings: PolicySettingsSchema,
+    effectiveAt: z.string(),
+  })),
+  featureFlags: z.array(z.object({
+    flagName: z.string(),
+    isEnabled: z.boolean(),
+    defaultValue: z.unknown(),
+  })),
+});
+
+export type SyncResponse = z.infer<typeof SyncResponseSchema>;
+
+export const HighlightSyncSchema = z.object({
+  deviceId: z.string(),
+  highlights: z.array(z.object({
+    blockId: z.string(),
+    content: z.string(),
+    color: z.string().default('yellow'),
+    note: z.string().optional(),
+    position: z.object({
+      startOffset: z.number(),
+      endOffset: z.number(),
+    }).optional(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })),
+});
+
+export type HighlightSync = z.infer<typeof HighlightSyncSchema>;
+
+export const NoteSyncSchema = z.object({
+  deviceId: z.string(),
+  notes: z.array(z.object({
+    manualId: z.string(),
+    sectionId: z.string().optional(),
+    blockId: z.string().optional(),
+    title: z.string(),
+    content: z.string(),
+    isPrivate: z.boolean().default(true),
+    tags: z.array(z.string()).optional(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })),
+});
+
+export type NoteSync = z.infer<typeof NoteSyncSchema>;
+
+// Admin Device Management Types
+export const DeviceListResponseSchema = z.object({
+  devices: z.array(DeviceSchema),
+  totalCount: z.number(),
+  pagination: z.object({
+    page: z.number(),
+    pageSize: z.number(),
+    totalPages: z.number(),
+  }),
+});
+
+export type DeviceListResponse = z.infer<typeof DeviceListResponseSchema>;
+
+export const DevicePolicyUpdateRequestSchema = z.object({
+  deviceIds: z.array(z.string()),
+  policyId: z.string(),
+  action: z.enum(['ADD', 'REMOVE', 'REPLACE']),
+});
+
+export type DevicePolicyUpdateRequest = z.infer<typeof DevicePolicyUpdateRequestSchema>;
+
+export const CacheInvalidationRequestSchema = z.object({
+  deviceIds: z.array(z.string()),
+  scope: z.object({
+    manualIds: z.array(z.string()).optional(),
+    cacheTypes: z.array(z.enum(['manuals', 'highlights', 'notes', 'search_index'])).optional(),
+    forceImmediate: z.boolean().default(false),
+  }),
+});
+
+export type CacheInvalidationRequest = z.infer<typeof CacheInvalidationRequestSchema>;
+
+export const RemoteCommandSchema = z.object({
+  id: z.string(),
+  deviceId: z.string(),
+  command: z.enum(['FORCE_SYNC', 'CACHE_INVALIDATE', 'POLICY_REFRESH', 'REMOTE_WIPE', 'RESTART_APP']),
+  payload: z.record(z.unknown()).optional(),
+  status: z.enum(['PENDING', 'SENT', 'ACKNOWLEDGED', 'COMPLETED', 'FAILED']),
+  createdAt: z.string(),
+  acknowledgedAt: z.string().optional(),
+  completedAt: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export type RemoteCommand = z.infer<typeof RemoteCommandSchema>;

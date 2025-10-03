@@ -46,6 +46,13 @@ model User {
   createdXmlDiffs XmlDiff[]
   createdExportConfigurations XmlExportConfiguration[]
   
+  // Epic-07 Relations
+  devices Device[] @relation("DeviceUser")
+  createdDevicePolicies DevicePolicy[] @relation("PolicyCreatedBy")
+  initiatedSyncJobs SyncJob[] @relation("SyncInitiatedBy")
+  deviceSessions DeviceSession[] @relation("DeviceSessionUser")
+  deviceAnalytics DeviceAnalytics[] @relation("DeviceAnalyticsUser")
+  
   @@map("users")
 }
 
@@ -82,6 +89,13 @@ model Organization {
   // Epic-06 Relations
   xmlDocuments XmlDocument[]
   xmlExportConfigurations XmlExportConfiguration[]
+  
+  // Epic-07 Relations
+  devices Device[]
+  devicePolicies DevicePolicy[]
+  offlineCaches OfflineCache[]
+  syncJobs SyncJob[]
+  deviceAnalytics DeviceAnalytics[]
   
   @@map("organizations")
 }
@@ -138,6 +152,9 @@ model Manual {
   
   // Epic-06 Relations
   xmlMappings XmlMapping[]
+  
+  // Epic-07 Relations
+  offlineCaches OfflineCache[]
   
   @@map("manuals")
 }
@@ -1553,4 +1570,333 @@ enum XmlJobType {
   EXPORT
   DIFF_GENERATION
   VALIDATION
+}
+
+// Epic-07: EFB APP & DEVICE CONTROLS
+
+model Device {
+  id               String @id @default(cuid())
+  organizationId   String
+  userId           String? // Device owner
+  deviceModel      DeviceModel
+  platform         DevicePlatform
+  osVersion        String
+  appVersion       String
+  deviceName       String
+  deviceId         String @unique // Unique device identifier
+  hardwareId       String @unique // Hardware UUID/serial
+  status           DeviceStatus @default(PENDING_ENROLLMENT)
+  lastSyncAt       DateTime?
+  lastOnlineAt     DateTime?
+  enrollmentDate   DateTime @default(now())
+  installedPolicies String[] // Policy IDs array
+  securityFlags    Json @default("{}") // Security flags object
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User? @relation("DeviceUser", fields: [userId], references: [id], onDelete: SetNull)
+  
+  // EFB relations
+  offlineCaches   OfflineCache[]
+  cacheChunks     CacheChunk[]
+  cacheManifests  CacheManifest[]
+  syncJobs        SyncJob[]
+  deviceSessions  DeviceSession[]
+  deviceAnalytics DeviceAnalytics[]
+  remoteCommands  RemoteCommand[]
+  
+  @@map("devices")
+  @@index([organizationId])
+  @@index([userId])
+  @@index([deviceId])
+  @@index([status])
+}
+
+model DevicePolicy {
+  id            String @id @default(cuid())
+  organizationId String
+  createdBy     String
+  name          String
+  description   String?
+  type          PolicyType
+  isActive      Boolean @default(true)
+  priority      Int @default(0) // Higher number = higher priority
+  conditions    Json @default("{}") // Policy conditions object
+  settings      Json @default("{}") // Policy-specific settings
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdByUser User @relation("PolicyCreatedBy", fields: [createdBy], references: [id], onDelete: Cascade)
+  
+  @@map("device_policies")
+  @@index([organizationId])
+  @@index([type])
+  @@index([isActive])
+}
+
+model OfflineCache {
+  id              String @id @default(cuid())
+  deviceId        String
+  organizationId  String
+  manualId        String
+  readerBundleId  String @unique
+  manifestId      String?
+  storagePath    String // Local storage location
+  totalSizeBytes Int
+  cachedAt       DateTime @default(now())
+  lastAccessedAt DateTime @default(now())
+  accessCount    Int @default(0)
+  isExpired      Boolean @default(false)
+  chunkChecksums Json @default("[]") // Array of chunk checksums
+  metadata       Json?
+  
+  // Relations
+  device       Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  manual       Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  manifest     CacheManifest? @relation(fields: [manifestId], references: [id], onDelete: SetNull)
+  
+  @@map("offline_caches")
+  @@index([deviceId])
+  @@index([organizationId])
+  @@index([manualId])
+  @@index([isExpired])
+}
+
+model CacheManifest {
+  id              String @id @default(cuid())
+  deviceId        String
+  readerBundleId  String
+  bundleVersion   String
+  chunkCount      Int
+  totalSizeBytes  Int
+  checksum        String // Manifest checksum
+  isCompressed    Boolean @default(true)
+  encryptionKeyId String? // For encrypted chunks
+  expiresAt       DateTime?
+  lastModified    DateTime @default(now())
+  createdAt       DateTime @default(now())
+  
+  // Relations
+  device      Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  offlineCache OfflineCache?
+  
+  @@unique([deviceId, readerBundleId])
+  @@map("cache_manifests")
+  @@index([deviceId])
+  @@index([readerBundleId])
+}
+
+model CacheChunk {
+  id              String @id @default(cuid())
+  deviceId        String
+  readerBundleId  String
+  chunkIndex       Int
+  chunkPath        String // S3/local path
+  chunkChecksum    String // SHA-256 hash
+  chunkSizeBytes   Int
+  status           ChunkStatus @default(AVAILABLE)
+  downloadedAt     DateTime?
+  expiresAt        DateTime?
+  error            String?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  @@unique([deviceId, readerBundleId, chunkIndex])
+  @@map("cache_chunks")
+  @@index([deviceId])
+  @@index([readerBundleId])
+  @@index([status])
+}
+
+model SyncJob {
+  id            String @id @default(cuid())
+  deviceId      String
+  organizationId String
+  initiatedBy   String // User ID
+  type          SyncJobType
+  status        SyncStatus @default(PENDING)
+  progress      Json @default("{\"totalItems\": 0, \"completedItems\": 0, \"failedItems\": 0, \"skippedItems\": 0, \"percentage\": 0}")
+  settings      Json @default("{}") // Job-specific settings
+  errors        Json @default("[]") // Array of error objects
+  startedAt     DateTime?
+  completedAt   DateTime?
+  cancelledAt   DateTime?
+  expiry        DateTime? // Job expiration
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  
+  // Relations
+  device  Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  initiatedByUser User @relation("SyncInitiatedBy", fields: [initiatedBy], references: [id], onDelete: Cascade)
+  
+  @@map("sync_jobs")
+  @@index([deviceId])
+  @@index([status])
+  @@index([type])
+}
+
+model DeviceSession {
+  id              String @id @default(cuid())
+  deviceId        String
+  userId          String
+  sessionToken    String @unique
+  isActive        Boolean @default(true)
+  lastActivityAt  DateTime @default(now())
+  geoLocation     Json? // Latitude, longitude, accuracy, altitude
+  appContext      Json @default("{}") // Current app context
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  
+  // Relations
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  user User @relation("DeviceSessionUser", fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("device_sessions")
+  @@index([deviceId])
+  @@index([userId])
+  @@index([sessionToken])
+}
+
+model DeviceAnalytics {
+  id            String @id @default(cuid())
+  deviceId      String
+  organizationId String
+  userId        String
+  action        DeviceAnalyticsAction
+  targetId      String? // Manual ID, search query, etc.
+  metadata      Json?
+  timestamp     DateTime @default(now())
+  
+  // Relations
+  device       Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user User @relation("DeviceAnalyticsUser", fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("device_analytics")
+  @@index([deviceId])
+  @@index([organizationId])
+  @@index([action])
+  @@index([timestamp])
+}
+
+model RemoteCommand {
+  id              String @id @default(cuid())
+  deviceId        String
+  command         RemoteCommandType
+  payload         Json?
+  status          RemoteCommandStatus @default(PENDING)
+  createdAt       DateTime @default(now())
+  acknowledgedAt  DateTime?
+  completedAt     DateTime?
+  error           String?
+  
+  // Relations
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  @@map("remote_commands")
+  @@index([deviceId])
+  @@index([status])
+}
+
+// Epic-07 Enums
+
+enum DeviceModel {
+  iPad
+  iPad_Pro
+  iPhone
+  Android_Tablet
+  Android_Phone
+  Windows_Tablet
+}
+
+enum DevicePlatform {
+  iOS
+  Android
+  Windows
+}
+
+enum DeviceStatus {
+  ACTIVE
+  PENDING_ENROLLMENT
+  SUSPENDED
+  DECOMMISSIONED
+}
+
+enum DeviceNetworkStatus {
+  ONLINE
+  OFFLINE
+  CONNECTING
+}
+
+enum PolicyType {
+  MANUAL_PINNING
+  CACHE_SYNC
+  SECURITY
+  FEATURE_FLAGS
+}
+
+enum ChunkStatus {
+  AVAILABLE
+  DOWNLOADING
+  COMPLETED
+  ERROR
+  EXPIRED
+}
+
+enum SyncStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum SyncJobType {
+  FULL_SYNC
+  INCREMENTAL_SYNC
+  POLICY_SYNC
+  CACHE_INVALIDATION
+}
+
+enum DeviceAnalyticsAction {
+  LOGIN
+  LOGOUT
+  MANUAL_OPEN
+  SEARCH_PERFORMED
+  OFFLINE_STARTED
+  OFFLINE_ENDED
+  SYNC_STARTED
+  SYNC_COMPLETED
+  CACHE_ACCESSED
+  HIGHLIGHT_ADDED
+  NOTES_ADDED
+  POLICY_UPDATED
+}
+
+enum RemoteCommandType {
+  FORCE_SYNC
+  CACHE_INVALIDATE
+  POLICY_REFRESH
+  REMOTE_WIPE
+  RESTART_APP
+}
+
+enum RemoteCommandStatus {
+  PENDING
+  SENT
+  ACKNOWLEDGED
+  COMPLETED
+  FAILED
 }
