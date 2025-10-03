@@ -33,6 +33,14 @@ model User {
   completedChecklists Checklist[] @relation("ChecklistCompletedBy")
   notifications Notification[]
   
+  // Epic-03 Relations
+  accessPermissions AccessPermission[]
+  annotations Annotation[]
+  readerSessions ReaderSession[]
+  suggestEdits SuggestEdit[]
+  offlineCaches OfflineCache[]
+  readerAnalytics ReaderAnalytics[]
+  
   @@map("users")
 }
 
@@ -53,6 +61,9 @@ model Organization {
   workflowDefinitions WorkflowDefinition[]
   checklists Checklist[]
   checklistTemplates ChecklistTemplate[]
+  
+  // Epic-03 Relations
+  featureFlags FeatureFlag[]
   
   @@map("organizations")
 }
@@ -87,6 +98,17 @@ model Manual {
   changeSets ChangeSet[]
   releaseSnapshots ReleaseSnapshot[]
   versions Version[]
+  
+  // Epic-03 Relations
+  readerBundles ReaderBundle[]
+  accessPermissions AccessPermission[]
+  searchIndexes SearchIndex[]
+  annotations Annotation[]
+  readerSessions ReaderSession[]
+  suggestEdits SuggestEdit[]
+  revisionBars RevisionBar[]
+  operationallyCriticalFlags OperationallyCriticalFlag[]
+  readerAnalytics ReaderAnalytics[]
   
   @@map("manuals")
 }
@@ -219,6 +241,9 @@ model ReleaseSnapshot {
   // Relations
   manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
   changeSet ChangeSet @relation(fields: [changeSetId], references: [id], onDelete: Cascade)
+  
+  // Epic-03 Relations
+  readerBundles ReaderBundle[]
   
   @@map("release_snapshots")
 }
@@ -547,4 +572,289 @@ enum EntityTypeNotification {
   TASK
   WORKFLOW_INSTANCE
   COMMENT
+}
+
+// Epic-03: Distribution & Reader Models
+
+model ReaderBundle {
+  id               String @id @default(cuid())
+  manualId         String
+  releaseSnapshotId String
+  version          String
+  bundleUrl        String // CDN URL to static JSON bundle
+  bundleSize       Int    // Size in bytes
+  createdAt        DateTime @default(now())
+  expiresAt        DateTime? // For time-limited access
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  releaseSnapshot ReleaseSnapshot @relation(fields: [releaseSnapshotId], references: [id], onDelete: Cascade)
+  
+  @@map("reader_bundles")
+}
+
+model AccessPermission {
+  id          String @id @default(cuid())
+  userId      String
+  manualId    String
+  bundleId    String
+  permission  Permission
+  grantedBy   String
+  grantedAt   DateTime @default(now())
+  expiresAt   DateTime?
+  metadata    Json? // Flexible metadata
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, manualId, bundleId])
+  @@map("access_permissions")
+}
+
+model SearchIndex {
+  id            String @id @default(cuid())
+  manualId      String
+  bundleId      String
+  searchableText String
+  indexes       Json // Structured index data
+  createdAt     DateTime @default(now())
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@unique([manualId, bundleId])
+  @@map("search_indexes")
+}
+
+model Annotation {
+  id          String @id @default(cuid())
+  userId      String
+  manualId    String
+  bundleId    String
+  chapterId   String
+  sectionId   String
+  blockId     String
+  selector    String // CSS selector or text range
+  type        AnnotationType
+  content     String
+  color       String? // For highlights
+  isPrivate   Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@map("annotations")
+}
+
+model ReaderSession {
+  id                String @id @default(cuid())
+  userId            String
+  manualId          String
+  bundleId          String
+  currentChapterId  String?
+  currentSectionId  String?
+  readingProgress   Int @default(0) // Percentage (0-100)
+  readingTimeSeconds Int @default(0)
+  lastAccessedAt    DateTime @default(now())
+  bookmarks         Json // Array of bookmark objects
+  annotations        String[] // Annotation IDs
+  notes              String[] // Note IDs
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, manualId, bundleId])
+  @@map("reader_session")
+}
+
+model SuggestEdit {
+  id               String @id @default(cuid())
+  userId           String
+  manualId         String
+  bundleId         String
+  chapterId        String
+  sectionId        String
+  blockId          String
+  selector         String // Text selection within block
+  currentText      String
+  suggestedText    String
+  reason           String
+  priority         SuggestEditPriority @default(MEDIUM)
+  status           SuggestEditStatus @default(PENDING)
+  createdTaskId    String? // Link to editor task
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  reviewerComments String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@map("suggest_edits")
+}
+
+model RevisionBar {
+  id           String @id @default(cuid())
+  manualId     String
+  bundleId     String
+  chapterId    String
+  sectionId    String
+  blockId      String
+  revisionType RevisionType
+  oldVersion   String?
+  newVersion   String
+  description  String
+  authorName   String
+  changedAt    DateTime
+  createdAt    DateTime @default(now())
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@map("revision_bars")
+}
+
+model OfflineCache {
+  id          String @id @default(cuid())
+  userId      String
+  bundleId    String
+  cacheKey    String
+  data        Json // Cached bundle data
+  cachedAt    DateTime @default(now())
+  expiresAt   DateTime
+  version     String
+  checksum    String
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, bundleId])
+  @@map("offline_cache")
+}
+
+model FeatureFlag {
+  id             String @id @default(cuid())
+  name           String
+  organizationId String
+  enabled        Boolean @default(false)
+  description    String?
+  conditions     Json // Array of condition objects
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@map("feature_flags")
+}
+
+model OperationallyCriticalFlag {
+  id                    String @id @default(cuid())
+  manualId              String
+  bundleId              String
+  isCritical            Boolean @default(false)
+  requiredRoles         String[] // Array of required roles
+  accessMethod          AccessMethod
+  distributionChannels  String[] // Distribution channel identifiers
+  versionPinRequired    Boolean @default(false)
+  auditLoggingRequired  Boolean @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@unique([manualId, bundleId])
+  @@map("operationally_critical_flags")
+}
+
+model ReaderAnalytics {
+  id         String @id @default(cuid())
+  userId     String
+  manualId   String
+  bundleId   String
+  event      ReaderEventType
+  metadata   Json? // Additional event metadata
+  timestamp  DateTime @default(now())
+  sessionId  String
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@map("reader_analytics")
+}
+
+// Epic-03 Enums
+
+enum Permission {
+  READ
+  ANNOTATE
+  SUGGEST_EDIT
+  ADMIN
+}
+
+enum AnnotationType {
+  HIGHLIGHT
+  NOTE
+  COMMENT
+  QUESTION
+  WARNING
+}
+
+enum SuggestEditPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum SuggestEditStatus {
+  PENDING
+  REVIEWED
+  APPROVED
+  REJECTED
+  MIGRATED
+}
+
+enum RevisionType {
+  NEW
+  UPDATED
+  MODIFIED
+  DELETED
+}
+
+enum AccessMethod {
+  CDN
+  EMAIL
+  FTP
+  OFFLINE_DOWNLOAD
+}
+
+enum ReaderEventType {
+  OPEN
+  SEARCH
+  ANNOTATE
+  SUGGEST_EDIT
+  BOOKMARK
+  DOWNLOAD
 }

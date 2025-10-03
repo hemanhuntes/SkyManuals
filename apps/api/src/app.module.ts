@@ -18,6 +18,12 @@ import { CommentsController } from './comments/comments.controller';
 import { CommentsService } from './comments/comments.service';
 import { NotificationService } from './notifications/notification.service';
 
+// Epic-03 Components
+import { ReaderController } from './reader/reader.controller';
+import { ReaderService } from './reader/reader.service';
+import { PublishPipelineService } from './publish-pipeline/publish-pipeline.service';
+import { SearchIndexService } from './search-engine/search-index.service';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -30,6 +36,7 @@ import { NotificationService } from './notifications/notification.service';
     WorkflowsController,
     TasksController,
     CommentsController,
+    ReaderController,
   ],
   providers: [
     PrismaService,
@@ -39,6 +46,9 @@ import { NotificationService } from './notifications/notification.service';
     TasksService,
     CommentsService,
     NotificationService,
+    ReaderService,
+    PublishPipelineService,
+    SearchIndexService,
   ],
 })
 export class AppModule {}

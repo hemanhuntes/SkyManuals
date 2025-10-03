@@ -585,3 +585,327 @@ export const WorkflowMetricsSchema = z.object({
 });
 
 export type WorkflowMetrics = z.infer<typeof WorkflowMetricsSchema>;
+
+// Epic-03: Distribution & Reader Types
+
+// Reader Entity Types
+export const ReaderBundleSchema = z.object({
+  id: z.string(),
+  manualId: z.string(),
+  releaseSnapshotId: z.string(),
+  version: z.string(),
+  bundleUrl: z.string(), // CDN URL to static JSON bundle
+  bundleSize: z.number(), // Size in bytes
+  createdAt: z.string(),
+  expiresAt: z.string().optional(), // For time-limited access
+});
+
+export type ReaderBundle = z.infer<typeof ReaderBundleSchema>;
+
+// Reader Access Control
+export const AccessPermissionSchema = z.object({
+  userId: z.string(),
+  manualId: z.string(),
+  bundleId: z.string(),
+  permission: z.enum(['READ', 'ANNOTATE', 'SUGGEST_EDIT', 'ADMIN']),
+  grantedBy: z.string(),
+  grantedAt: z.string(),
+  expiresAt: z.string().optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export type AccessPermission = z.infer<typeof AccessPermissionSchema>;
+
+// Search and Indexing Types
+export const SearchIndexSchema = z.object({
+  id: z.string(),
+  manualId: z.string(),
+  bundleId: z.string(),
+  searchableText: z.string(),
+  indexes: z.object({
+    keywords: z.array(z.string()),
+    phrases: z.array(z.string()),
+    entities: z.array(z.string()), // Named entities (aircraft types, procedures, etc.)
+    sections: z.object({
+      chapterId: z.string(),
+      sectionId: z.string(),
+      blockId: z.string(),
+      text: z.string(),
+      position: z.number(),
+    }).array(),
+  }),
+  createdAt: z.string(),
+});
+
+export type SearchIndex = z.infer<typeof SearchIndexSchema>;
+
+export const SearchQuerySchema = z.object({
+  query: z.string(),
+  manualId: z.string().optional(),
+  bundleId: z.string().optional(),
+  filters: z.object({
+    chapterId: z.string().optional(),
+    sectionId: z.string().optional(),
+    keywords: z.array(z.string()).optional(),
+    entities: z.array(z.string()).optional(),
+  }).optional(),
+  page: z.number().default(1),
+  limit: z.number().default(10),
+});
+
+export type SearchQuery = z.infer<typeof SearchQuerySchema>;
+
+export const SearchResultSchema = z.object({
+  results: z.array(z.object({
+    manualId: z.string(),
+    chapterId: z.string(),
+    sectionId: z.string(),
+    blockId: z.string(),
+    title: z.string(),
+    excerpt: z.string(),
+    highlight: z.string(),
+    relevanceScore: z.number(),
+    position: z.number(),
+  })),
+  totalResults: z.number(),
+  page: z.number(),
+  limit: z.number(),
+  query: z.string(),
+  processingTimeMs: z.number(),
+});
+
+export type SearchResult = z.infer<typeof SearchResultSchema>;
+
+// Annotations and Notes Types
+export const AnnotationTypeSchema = z.enum(['HIGHLIGHT', 'NOTE', 'COMMENT', 'QUESTION', 'WARNING']);
+export type AnnotationType = z.infer<typeof AnnotationTypeSchema>;
+
+export const AnnotationSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  manualId: z.string(),
+  bundleId: z.string(),
+  chapterId: z.string(),
+  sectionId: z.string(),
+  blockId: z.string(),
+  selector: z.string(), // CSS selector or text range for positioning
+  type: AnnotationTypeSchema,
+  content: z.string(),
+  color: z.string().optional(), // For highlights
+  isPrivate: z.boolean().default(true),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type Annotation = z.infer<typeof AnnotationSchema>;
+
+export const ReaderSessionSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  manualId: z.string(),
+  bundleId: z.string(),
+  currentChapterId: z.string().optional(),
+  currentSectionId: z.string().optional(),
+  readingProgress: z.number().default(0), // Percentage (0-100)
+  readingTimeSeconds: z.number().default(0),
+  lastAccessedAt: z.string(),
+  bookmarks: z.array(z.object({
+    chapterId: z.string(),
+    sectionId: z.string(),
+    blockId: z.string().optional(),
+    title: z.string(),
+    createdAt: z.string(),
+  })),
+  annotations: z.array(z.string()), // Annotation IDs
+  notes: z.array(z.string()), // Note IDs
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type ReaderSession = z.infer<typeof ReaderSessionSchema>;
+
+// Suggest Edit Types
+export const SuggestEditSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  manualId: z.string(),
+  bundleId: z.string(),
+  chapterId: z.string(),
+  sectionId: z.string(),
+  blockId: z.string(),
+  selector: z.string(), // Text selection within block
+  currentText: z.string(),
+  suggestedText: z.string(),
+  reason: z.string(),
+  priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).default('MEDIUM'),
+  status: z.enum(['PENDING', 'REVIEWED', 'APPROVED', 'REJECTED', 'MIGRATED']).default('PENDING'),
+  createdTaskId: z.string().optional(), // Link to editor task if created
+  reviewedBy: z.string().optional(),
+  reviewedAt: z.string().optional(),
+  reviewerComments: z.string().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type SuggestEdit = z.infer<typeof SuggestEditSchema>;
+
+// Revision Bar Types
+export const RevisionBarSchema = z.object({
+  id: z.string(),
+  manualId: z.string(),
+  bundleId: z.string(),
+  chapterId: z.string(),
+  sectionId: z.string(),
+  blockId: z.string(),
+  revisionType: z.enum(['NEW', 'UPDATED', 'MODIFIED', 'DELETED']),
+  oldVersion: z.string().optional(),
+  newVersion: z.string(),
+  description: z.string(),
+  authorName: z.string(),
+  changedAt: z.string(),
+});
+
+export type RevisionBar = z.infer<typeof RevisionBarSchema>;
+
+export const RevisionSummarySchema = z.object({
+  manualId: z.string(),
+  bundleId: z.string(),
+  version: z.string(),
+  totalRevisions: z.number(),
+  newContent: z.number(),
+  updatedContent: z.number(),
+  modifiedContent: z.number(),
+  deletedContent: z.number(),
+  revisionBars: z.array(RevisionBarSchema),
+  lastUpdated: z.string(),
+});
+
+export type RevisionSummary = z.infer<typeof RevisionSummarySchema>;
+
+// Offline Support Types
+export const OfflineCacheSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  bundleId: z.string(),
+  cacheKey: z.string(),
+  data: z.object({
+    manual: z.unknown(),
+    chapters: z.array(z.unknown()),
+    sections: z.array(z.unknown()),
+    blocks: z.array(z.unknown()),
+    annotations: z.array(z.unknown()),
+    searchIndex: z.unknown(),
+  }),
+  cachedAt: z.string(),
+  expiresAt: z.string(),
+  version: z.string(),
+  checksum: z.string(),
+});
+
+export type OfflineCache = z.infer<typeof OfflineCacheSchema>;
+
+export const OfflineCapabilitySchema = z.object({
+  bundleId: z.string(),
+  canCache: z.boolean(),
+  estimatedSizeMB: z.number(),
+  includesAnnotations: z.boolean(),
+  includesSearchIndex: z.boolean(),
+  lastSyncAt: z.string(),
+  syncRequired: z.boolean(),
+});
+
+export type OfflineCapability = z.infer<typeof OfflineCapabilitySchema>;
+
+// Feature Flags Types
+export const FeatureFlagSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  organizationId: z.string(),
+  enabled: z.boolean(),
+  description: z.string().optional(),
+  conditions: z.array(z.object({
+    userId: z.string().optional(),
+    userRole: z.string().optional(),
+    manualId: z.string().optional(),
+    bundleId: z.string().optional(),
+    expression: z.string().optional(), // JSON logic expression
+  })),
+  metadata: z.record(z.unknown()).optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type FeatureFlag = z.infer<typeof FeatureFlagSchema>;
+
+export const OperationallyCriticalFlagSchema = z.object({
+  manualId: z.string(),
+  bundleId: z.string(),
+  isCritical: z.boolean(),
+  requiredRoles: z.array(z.string()),
+  accessMethod: z.enum(['CDN', 'EMAIL', 'FTP', 'OFFLINE_DOWNLOAD']),
+  distributionChannels: z.array(z.string()),
+  versionPinRequired: z.boolean(),
+  auditLoggingRequired: z.boolean(),
+});
+
+export type OperationallyCriticalFlag = z.infer<typeof OperationallyCriticalFlagSchema>;
+
+// API Request/Response Types for Reader
+export const BundleMetadataSchema = z.object({
+  manualId: z.string(),
+  bundleId: z.string(),
+  version: z.string(),
+  title: z.string(),
+  description: z.string().optional(),
+  createdAt: z.string(),
+  publishedAt: z.string(),
+  bundleSize: z.number(),
+  bundleUrl: z.string(),
+  requiresAuth: z.boolean(),
+  offlineAvailable: z.boolean(),
+  annotationCount: z.number().default(0),
+  revisionCount: z.number().default(0),
+});
+
+export type BundleMetadata = z.infer<typeof BundleMetadataSchema>;
+
+export const ManualReaderResponseSchema = z.object({
+  bundle: BundleMetadataSchema,
+  manual: z.object({
+    id: z.string(),
+    title: z.string(),
+    organizationId: z.string(),
+    chapters: z.array(z.object({
+      id: z.string(),
+      title: z.string(),
+      number: z.string(),
+      sections: z.array(z.object({
+        id: z.string(),
+        title: z.string(),
+        number: z.string(),
+        blocks: z.array(z.unknown()), // TipTap blocks
+      })),
+    })),
+  }),
+  userPermissions: z.object({
+    canRead: z.boolean(),
+    canAnnotate: z.boolean(),
+    canSuggestEdit: z.boolean(),
+    canDownloadOffline: z.boolean(),
+  }),
+});
+
+export type ManualReaderResponse = z.infer<typeof ManualReaderResponseSchema>;
+
+// Reader Analytics Types
+export const ReaderAnalyticsSchema = z.object({
+  userId: z.string(),
+  manualId: z.string(),
+  bundleId: z.string(),
+  event: z.enum(['OPEN', 'SEARCH', 'ANNOTATE', 'SUGGEST_EDIT', 'BOOKMARK', 'DOWNLOAD']),
+  metadata: z.record(z.unknown()).optional(),
+  timestamp: z.string(),
+  sessionId: z.string(),
+});
+
+export type ReaderAnalytics = z.infer<typeof ReaderAnalyticsSchema>;
