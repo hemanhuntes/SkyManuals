@@ -2742,3 +2742,282 @@ export const AddonReviewCreateRequestSchema = z.object({
 });
 
 export type AddonReviewCreateRequest = z.infer<typeof AddonReviewCreateRequestSchema>;
+
+// ===============================================
+// EPIC-10: CROSS-CUTTING NFRS
+// ===============================================
+
+// Security & Rate Limiting Types
+export const RateLimitOptionsSchema = z.object({
+  windowMs: z.number(), // Time window in milliseconds
+  maxRequests: z.number(), // Maximum requests per window
+  burstLimit: z.number().optional(), // Burst capacity
+  skipSuccessfulRequests: z.boolean().default(false),
+  skipFailedRequests: z.boolean().default(false),
+  keyGenerator: z.string().optional(), // Custom key function name
+  message: z.string().optional(),
+});
+
+export type RateLimitOptions = z.infer<typeof RateLimitOptionsSchema>;
+
+export const RateLimitInfoSchema = z.object({
+  limit: z.number(),
+  current: z.number(),
+  remaining: z.number(),
+  resetTime: z.string(),
+  retryAfter: z.number().optional(),
+});
+
+export type RateLimitInfo = z.infer<typeof RateLimitInfoSchema>;
+
+// Security Headers Configuration
+export const SecurityHeadersConfigSchema = z.object({
+  xFrameOptions: z.enum(['DENY', 'SAMEORIGIN']).default('DENY'),
+  xXssProtection: z.boolean().default(true),
+  xContentTypeOptions: z.boolean().default(true),
+  strictTransportSecurity: z.object({
+    enabled: z.boolean().default(true),
+    maxAge: z.number().default(31536000), // 1 year
+    includeSubDomains: z.boolean().default(true),
+    preload: z.boolean().default(false),
+  }),
+  contentSecurityPolicy: z.object({
+    enabled: z.boolean().default(true), 
+    directives: z.record(z.array(z.string())),
+  }),
+  referrerPolicy: z.enum(['no-referrer', 'no-referrer-when-downgrade', 'origin', 'origin-when-cross-origin', 'same-origin', 'strict-origin', 'strict-origin-when-cross-origin', 'unsafe-url']).default('strict-origin-when-cross-origin'),
+  permissionsPolicy: z.record(z.array(z.string())).optional(),
+  cacheControl: z.string().optional(),
+});
+
+export type SecurityHeadersConfig = z.infer<typeof SecurityHeadersConfigSchema>;
+
+// Suspicious Activity Detection
+export const SuspiciousActivityTypeSchema = z.enum([
+  'SQL_INJECTION',
+  'XSS_ATTACK',
+  'PATH_TRAVERSAL',
+  'COMMAND_INJECTION',
+  'SUSPICIOUS_HEADER',
+  'SUSPICIOUS_USER_AGENT',
+  'RATE_LIMIT_EXCEEDED',
+  'BRUTE_FORCE',
+]);
+
+export type SuspiciousActivityType = z.infer<typeof SuspiciousActivityTypeSchema>;
+
+export const SecurityViolationSchema = z.object({
+  id: z.string(),
+  type: SuspiciousActivityTypeSchema,
+  severity: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']),
+  userId: z.string().optional(),
+  ipAddress: z.string(),
+  userAgent: z.string().optional(),
+  endpoint: z.string(),
+  method: z.string(),
+  headers: z.record(z.string()).optional(),
+  body: z.string().optional(),
+  matchedPatterns: z.array(z.string()),
+  threatScore: z.number().min(0).max(100),
+  organizationId: z.string().optional(),
+  actionTaken: z.enum(['LOG', 'BLOCK', 'RATE_LIMIT', 'ALERT']),
+  blocked: z.boolean(),
+  createdAt: z.string(),
+});
+
+export type SecurityViolation = z.infer<typeof SecurityViolationSchema>;
+
+// Observability & Telemetry Types
+export const TelemetryConfigSchema = z.object({
+  enabled: z.boolean(),
+  traces: z.object({
+    endpoint: z.string(),
+    sampleRate: z.number().min(0).max(1),
+    batchSize: z.number(),
+    exportTimeoutMillis: z.number(),
+  }),
+  metrics: z.object({
+    endpoint: z.string(),
+    intervalMills: z.number(),
+    exportTimeoutMillis: z.number(),
+  }),
+  logs: z.object({
+    endpoint: z.string(),
+    level: z.string(),
+    includeTraceContext: z.boolean(),
+  }),
+  resource: z.object({
+    serviceName: z.string(),
+    serviceVersion: z.string(),
+    environment: z.string(),
+    hostName: z.string(),
+  }),
+});
+
+export type TelemetryConfig = z.infer<typeof TelemetryConfigSchema>;
+
+export const CorrelationContextSchema = z.object({
+  traceId: z.string(),
+  spanId: z.string(),
+  correlationId: z.string(),
+  userId: z.string().optional(),
+  organizationId: z.string().optional(),
+  requestId: z.string(),
+  sessionId: z.string().optional(),
+});
+
+export type CorrelationContext = z.infer<typeof CorrelationContextSchema>;
+
+// SLO (Service Level Objective) Types
+export const SLOTargetSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  metric: z.enum(['apdex', 'error_rate', 'response_time', 'throughput', 'availability']),
+  threshold: z.number(),
+  window: z.string(), // Duration (e.g., '5m', '1h', '24h')
+  severity: z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']),
+  tags: z.array(z.string()).optional(),
+});
+
+export type SLOTarget = z.infer<typeof SLOTargetSchema>;
+
+export const SLOLoadTestSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  endpoint: z.string(),
+  method: z.string().default('GET'),
+  headers: z.record(z.string()).optional(),
+  body: z.string().optional(),
+  stages: z.array(z.object({
+    duration: z.string(), // e.g., '30s', '2m'
+    target: z.number(), // VU (Virtual Users)
+    rampUp: z.string().optional(), // e.g., '10s'
+    rampDown: z.string().optional(),
+  })),
+  thresholds: z.object({
+    http_reuq_duration: z.string(), // e.g., 'avg<1000'
+    http_req_failed: z.string(), // e.g., 'rate<0.05'
+  }),
+});
+
+export type SLOLoadTest = z.infer<typeof SLOLoadTestSchema>;
+
+// Database Backup Types
+export const BackupConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  schedule: z.string().default('0 2 * * *'), // Cron expression
+  retentionDays: z.number().default(30),
+  compressionEnabled: z.boolean().default(true),
+  encryptionEnabled: z.boolean().default(true),
+  s3Bucket: z.string().optional(),
+  s3Prefix: z.string().optional(),
+  localPath: z.string().optional(),
+  password: z.string().optional(), // For encryption
+});
+
+export type BackupConfig = z.infer<typeof BackupConfigSchema>;
+
+export const BackupJobSchema = z.object({
+  id: z.string(),
+  configId: z.string(),
+  status: z.enum(['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']),
+  startTime: z.string(),
+  endTime: z.string().optional(),
+  duration: z.number().optional(), // Seconds
+  sizeBytes: z.number().optional(),
+  compressedSizeBytes: z.number().optional(),
+  checksum: z.string().optional(),
+  error: z.string().optional(),
+  backupPath: z.string(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export type BackupJob = z.infer<typeof BackupJobSchema>;
+
+export const BackupRestoreRequestSchema = z.object({
+  backupPath: z.string(),
+  targetDatabase: z.string(),
+  dropExisting: z.boolean().default(false),
+  encryptionPassword: z.string().optional(),
+});
+
+export type BackupRestoreRequest = z.infer<typeof BackupRestoreRequestSchema>;
+
+// Performance Monitoring Types
+export const PerformanceMetricSchema = z.object({
+  name: z.string(),
+  value: z.number(),
+  unit: z.string(),
+  tags: z.record(z.string()),
+  timestamp: z.string(),
+});
+
+export type PerformanceMetric = z.infer<typeof PerformanceMetricSchema>;
+
+export const PerformanceAlertSchema = z.object({
+  id: z.string(),
+  metricName: z.string(),
+  condition: z.enum(['gt', 'lt', 'eq', 'gte', 'lte']),
+  threshold: z.number(),
+  currentValue: z.number(),
+  severity: z.enum(['INFO', 'WARNING', 'ERROR', 'CRITICAL']),
+  message: z.string(),
+  organizationId: z.string().optional(),
+  resolved: z.boolean().default(false),
+  resolvedAt: z.string().optional(),
+  createdAt: z.string(),
+});
+
+export type PerformanceAlert = z.infer<typeof PerformanceAlertSchema>;
+
+// Dependency Audit Types
+export const DependencyVulnerabilitySchema = z.object({
+  id: z.string(),
+  packageName: z.string(),
+  packageVersion: z.string(),
+  severity: z.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
+  title: z.string(),
+  description: z.string(),
+  cves: z.array(z.string()).optional(),
+  cvss: z.object({
+    score: z.number(),
+    vector: z.string(),
+  }).optional(),
+  vulnerableVersions: z.string(),
+  patchedVersions: z.string().optional(),
+  createdAt: z.string(),
+});
+
+export type DependencyVulnerability = z.infer<typeof DependencyVulnerabilitySchema>;
+
+export const DependencyLicenseSchema = z.object({
+  packageName: z.string(),
+  packageVersion: z.string(),
+  licenseType: z.string(),
+  licenseUrl: z.string().optional(),
+  isCompatible: z.boolean().default(true),
+  restrictions: z.array(z.string()).optional(),
+});
+
+export type DependencyLicense = z.infer<typeof DependencyLicenseSchema>;
+
+export const DependencyAuditSchema = z.object({
+  id: z.string(),
+  scanType: z.enum(['SECURITY', 'LICENSE', 'BOTH']),
+  files: z.array(z.string()), // package-lock.json, yarn.lock, etc.
+  vulnerabilities: z.array(DependencyVulnerabilitySchema),
+  licenseIssues: z.array(DependencyLicenseSchema),
+  summary: z.object({
+    totalPackages: z.number(),
+    vulnerablePackages: z.number(),
+    criticalVulnerabilities: z.number(),
+    highVulnerabilities: z.number(),
+    licenseConflicts: z.number(),
+  }),
+  status: z.enum(['PENDING', 'RUNNING', 'COMPLETED', 'FAILED']),
+  startedAt: z.string(),
+  completedAt: z.string().optional(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export type DependencyAudit = z.infer<typeof DependencyAuditSchema>;

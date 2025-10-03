@@ -11,6 +11,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -19,6 +20,7 @@ import {
   ApiParam,
   ApiHeader,
   ApiBody,
+  ApiSecurity,
 } from '@nestjs/swagger';
 import { ManualsService } from './manuals.service';
 import {
