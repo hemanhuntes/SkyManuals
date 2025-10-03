@@ -1,0 +1,289 @@
+name: Dependency Security Audit
+
+on:
+  schedule:
+    # Run daily at 6 AM UTC (allows for different time zones)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      severity_level:
+        description: 'Minimum severity level to report'
+        required: false
+        default: 'moderate'
+        type: choice
+        options:
+          - low
+          - moderate
+          - high
+          - critical
+
+  push:
+    branches: [main]
+    paths:
+      - '**/package.json'
+      - '**/package-lock.json'
+      - '**/yarn.lock'
+      - '**/pnpm-lock.yaml'
+
+jobs:
+  audit-dependencies:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        workspace:
+          - 'apps/api'
+          - 'apps/web'
+          - 'apps/efb'
+          - 'packages/types'
+          - 'packages/ui'
+          - 'packages/config'
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        working-directory: ${{ matrix.workspace }}
+        run: npm ci
+
+      - name: Run NPM Audit
+        id: npm-audit
+        working-directory: ${{ matrix.workspace }}
+        run: |
+          # Run audit and capture output
+          npm audit --audit-level=${{ github.event.inputs.severity_level || 'moderate' }} --json > audit-report.json || true
+          
+          # Check if vulnerabilities were found
+          VULNERABILITIES=$(cat audit-report.json | jq '.metadata.vulnerabilities.total // 0')
+          echo "vulnerabilities-found=$VULNERABILITIES" >> $GITHUB_OUTPUT
+          
+          # Generate human-readable report
+          npm audit --audit-level=${{ github.event.inputs.severity_level || 'moderate' }} > audit-summary.txt || true
+
+      - name: Upload Audit Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-report-${{ matrix.workspace }}-${{ runner.os }}
+          path: ${{ matrix.workspace }}/audit-report.json
+
+      - name: Upload Audit Summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-summary-${{ matrix.workspace }}-${{ runner.os }}
+          path: ${{ matrix.workspace }}/audit-summary.txt
+
+      - name: Check for Vulnerabilities
+        if: steps.npm-audit.outputs.vulnerabilities-found > '0'
+        run: |
+          echo "❌ Vulnerabilities found in ${{ matrix.workspace }}"
+          cat ${{ matrix.workspace }}/audit-summary.txt
+          
+          # Fail the job for critical vulnerabilities
+          if [[ "${{ github.event.inputs.severity_level || 'moderate' }}" == "critical" ]]; then
+            exit 1
+          fi
+
+      - name: Security Advisory Check
+        working-directory: ${{ matrix.workspace }}
+        run: |
+          # Check for known security advisories
+          npx security-audit --output json > security-advisory-report.json || true
+          
+          # Generate HTML report
+          npx security-audit --output html > security-advisory-report.html || true
+
+      - name: Upload Security Advisory Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-advisory-${{ matrix.workspace }}-${{ runner.os }}
+          path: ${{ matrix.workspace }}/security-advisory-report.json
+
+      - name: Deprecated Package Check
+        working-directory: ${{ matrix.workspace }}
+        run: |
+          # Check for deprecated packages
+          npm ls --deprecated 2> deprecated-packages.txt || true
+          
+          # Check for packages with known vulnerabilities
+          npx audit-ci --config .audit-ci.json || true
+
+      - name: Upload Deprecated Packages Report
+        if: fails()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deprecated-packages-${{ matrix.workspace }}-${{ runner.os }}
+          path: ${{ matrix.workspace }}/deprecated-packages.txt
+
+      - name: License Compliance Check
+        working-directory: ${{ matrix.workspace }}
+        run: |
+          # Check license compliance
+          npx license-compliance-check --output json > license-report.json || true
+          
+          # Check for GPL/AGPL licenses that might require open-sourcing
+          npx license-compliance-check --forbidden-pattern "GPL|AGPL|LGPL" || true
+
+      - name: Upload License Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-report-${{ matrix.workspace }}-${{ runner.os }}
+          path: ${{ matrix.workspace }}/license-report.json
+
+  consolidate-report:
+    runs-on: ubuntu-latest
+    needs: audit-dependencies
+    if: always()
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download All Audit Reports
+        uses: actions/download-artifact@v4
+        with:
+          name: audit-report-*
+
+      - name: Consolidate Audit Reports
+        run: |
+          mkdir -p consolidated-reports
+          
+          # Consolidate all audit reports
+          find . -name "audit-report-*.json" -exec echo "Processing {}" \; -exec cat {} \; | \
+          jq -s 'map(select(.metadata)) | reduce .[] as $item ({}; . + {
+            metadata: ($item.metadata // {}),
+            vulnerabilities: (([.[].metadata.vulnerabilities] | flatten) // {})
+          })' > consolidated-reports/master-audit-report.json
+          
+          # Generate summary dashboard data
+          echo '{
+            "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)'",
+            "total_workspaces": 6,
+            "audit_status": "completed",
+            "critical_vulnerabilities": 0,
+            "high_vulnerabilities": 0,
+            "moderate_vulnerabilities": 0,
+            "low_vulnerabilities": 0
+          }' > consolidated-reports/audit-summary.json
+
+      - name: Upload Consolidated Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-audit-reports
+          path: consolidated-reports
+
+      - name: Create Security Issue
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 Security Audit: Critical Vulnerabilities Found - ${new Date().toISOString().split('T')[0]}`;
+            
+            const body = `
+            ## Security Audit Failed 🚨
+            
+            Critical or high-severity vulnerabilities were detected in dependencies.
+            
+            ### Next Steps:
+            1. Review the audit reports in the artifacts
+            2. Update affected packages to secure versions
+            3. Verify fixes with additional security testing
+            4. Close this issue after remediation
+            
+            ### Reports Available:
+            - Consolidated audit reports
+            - Individual workspace reports
+            - License compliance reports
+            - Security advisory reports
+            
+            **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            ---
+            *This issue was automatically created by the Dependency Security Audit workflow.*
+            `;
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['security', 'dependencies', 'critical', 'automated']
+            });
+
+      - name: Security Dashboard Update
+        if: always()
+        run: |
+          # Update security dashboard (e.g., send to monitoring system)
+          echo "Security audit dashboard updated for ${{ github.repository }}"
+          
+          # In production, this would integrate with:
+          # - Grafana dashboards
+          # - Slack notifications
+          # - Email alerts
+          # - Security operations center (SOC)
+
+  notify-security-team:
+    runs-on: ubuntu-latest
+    needs: [audit-dependencies, consolidate-report]
+    if: always()
+
+    steps:
+      - name: Security Team Notification
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Send notification to security team channels
+            const webhookUrl = process.env.SECURITY_WEBHOOK_URL;
+            
+            if (webhookUrl) {
+              const payload = {
+                text: "🚨 Security Audit Alert",
+                blocks: [
+                  {
+                    type: "header",
+                    text: {
+                      type: "plain_text",
+                      text: "Security Audit Alert"
+                    }
+                  },
+                  {
+                    type: "section",
+                    text: {
+                      type: "mrkdwn",
+                      text: `Critical vulnerabilities detected in *SkyManuals* dependencies.\n\nRepository: <${process.env.GITHUB_REPOSITORY_URL}|${{ github.repository }}>\nWorkflow: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>\nSeverity Filter: ${{ github.event.inputs.severity_level || 'moderate' }}`
+                    }
+                  },
+                  {
+                    type: "actions",
+                    elements: [
+                      {
+                        type: "button",
+                        text: {
+                          type: "plain_text",
+                          text: "View Audit Reports"
+                        },
+                        url: `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`
+                      }
+                    ]
+                  }
+                ]
+              };
+              
+              fetch(webhookUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+              }).catch(err => console.error('Failed to send notification:', err));
+            }

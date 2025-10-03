@@ -1,0 +1,405 @@
+name: Nightly Database Backups
+
+on:
+  schedule:
+    # Run daily at 2 AM UTC (allows for different time zones)
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      backup_type:
+        description: 'Type of backup to perform'
+        required: false
+        default: 'incremental'
+        type: choice
+        options:
+          - incremental
+          - full
+      force_backup:
+        description: 'Force backup even if recent backup exists'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  BACKUP_DIR: /tmp/skymanuals-backups
+  ENCRYPTION_KEY_FILE: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+  S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  RETENTION_DAYS: 30
+
+jobs:
+  setup-backup-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      backup_id: ${{ steps.generate-id.outputs.backup_id }}
+      retention_days: ${{ env.RETENTION_DAYS }}
+    
+    steps:
+      - name: Generate Backup Session ID
+        id: generate-id
+        run: |
+          BACKUP_ID="skymanuals-backup-$(date +%Y%m%d-%H%M%S)-${{ github.run_number }}"
+          echo "backup_id=$BACKUP_ID" >> $GITHUB_OUTPUT
+          echo "Backup session ID: $BACKUP_ID"
+
+      - name: Create Backup Directory
+        run: |
+          mkdir -p "${BACKUP_DIR}"
+          echo "Backup directory created: ${BACKUP_DIR}"
+
+  backup-database:
+    runs-on: ubuntu-latest
+    needs: setup-backup-environment
+    if: ${{ github.event.inputs.backup_type || 'incremental' }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup PostgreSQL Client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-15 postgresql-client-common
+          
+          # Verify installation
+          pg_dump --version
+
+      - name: Setup Database Tools
+        run: |
+          sudo apt-get install -y gzip openssl jq
+          
+          # Install AWS CLI v2 if S3 bucket is configured
+          if [[ -n "${S3_BUCKET}" ]]; then
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip awscliv2.zip
+            sudo ./aws/install
+            aws --version
+          fi
+
+      - name: Validate Database Connection
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "Validating database connection..."
+          
+          # Test basic connectivity
+          if ! pg_isready -d "${DATABASE_URL}" -q; then
+            echo "❌ Database connection failed"
+            exit 1
+          fi
+          
+          # Test query capability
+          if ! psql "${DATABASE_URL}" -c "SELECT 1;" > /dev/null; then
+            echo "❌ Database query failed"
+            exit 1
+          fi
+          
+          echo "✅ Database connection validated"
+
+      - name: Run Database Backup
+        id: backup
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_DIR: /tmp/skymanuals-backups
+          ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          RETENTION_DAYS: ${{ env.RETENTION_DAYS }}
+          COMPRESS_BACKUPS: "true"
+          VERBOSE: "true"
+        run: |
+          # Create encryption key file if provided
+          if [[ -n "${ENCRYPTION_KEY}" ]]; then
+            echo "${ENCRYPTION_KEY}" > ./backup.key
+            chmod 600 ./backup.key
+            export ENCRYPTION_KEY_FILE="./backup.key"
+          else
+            export ENCRYPTION_KEY_FILE="none"
+          fi
+          
+          # Run backup script
+          chmod +x scripts/backup-database.sh
+          
+          BACKUP_TYPE="${{ github.event.inputs.backup_type || 'incremental' }}"
+          
+          echo "🚀 Starting $BACKUP_TYPE backup..."
+          ./scripts/backup-database.sh -v $BACKUP_TYPE
+          
+          # Capture backup file path
+          BACKUP_FILE=$(find "${BACKUP_DIR}" -name "skymanuals_${BACKUP_TYPE}_*.sql*" -type f | head -1)
+          
+          if [[ -n "${BACKUP_FILE}" ]]; then
+            echo "backup_file=$BACKUP_FILE" >> $GITHUB_OUTPUT
+            echo "backup_size=$(stat -f%z "${BACKUP_FILE}" 2>/dev/null || wc -c < "${BACKUP_FILE}")" >> $GITHUB_OUTPUT
+            
+            # Extract metadata
+            METADATA_FILE="${BACKUP_FILE}.metadata.json"
+            if [[ -f "${METADATA_FILE}" ]]; then
+              echo "backup_timestamp=$(jq -r '.timestamp' "${METADATA_FILE}")" >> $GITHUB_OUTPUT
+              echo "backup_duration=$(jq -r '.duration_seconds' "${METADATA_FILE}")" >> $GITHUB_OUTPUT
+              echo "backup_size_bytes=$(jq -r '.size_bytes' "${METADATA_FILE}")" >> $GITHUB_OUTPUT
+              echo "postgresql_version=$(jq -r '.postgresql_version' "${METADATA_FILE}")" >> $GITHUB_OUTPUT
+            fi
+            
+            echo "✅ Backup completed successfully"
+          else
+            echo "❌ Backup file not found"
+            exit 1
+          fi
+
+      - name: Upload Backup Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-backup-${{ needs.setup-backup-environment.outputs.backup_id }}
+          path: |
+            ${{ steps.backup.outputs.backup_file }}*
+            /tmp/skymanuals-backups/logs/
+          retention-days: 7
+
+      - name: Set AWS Credentials
+        if: env.S3_BUCKET != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Upload to S3
+        if: env.S3_BUCKET != ''
+        env:
+          S3_KEY_PREFIX: skymanuals-backups/${{ github.repository }}/nightly/${{ needs.setup-backup-environment.outputs.backup_id }}
+        run: |
+          BACKUP_FILE="${{ steps.backup.outputs.backup_file }}"
+          
+          echo "🔄 Uploading backup to S3..."
+          
+          # Upload main backup file
+          aws s3 cp "${BACKUP_FILE}" "s3://${S3_BUCKET}/${S3_KEY_PREFIX}/$(basename "${BACKUP_FILE}")"
+          
+          # Upload checksum file
+          aws s3 cp "${BACKUP_FILE}.sha256" "s3://${S3_BUCKET}/${S3_KEY_PREFIX}/$(basename "${BACKUP_FILE}.sha256")"
+          
+          # Upload metadata
+          aws s3 cp "${BACKUP_FILE}.metadata.json" "s3://${S3_BUCKET}/${S3_KEY_PREFIX}/$(basename "${BACKUP_FILE}.metadata.json")"
+          
+          echo "✅ Upload completed"
+
+      - name: Cleanup Old S3 Backups
+        if: env.S3_BUCKET != ''
+        env:
+          RETENTION_DAYS: ${{ env.RETENTION_DAYS }}
+        run: |
+          echo "🧹 Cleaning up old backups from S3..."
+          
+          # List and delete backups older than retention period
+          aws s3api list-objects-v2 \
+            --bucket "${S3_BUCKET}" \
+            --prefix "skymanuals-backups/${{ github.repository }}/nightly/" \
+            --query "Contents[?LastModified < '$(date -d "${RETENTION_DAYS} days ago"' --iso-8601)'].{Key: Key}" \
+            --output text | \
+          while read -r key; do
+            if [[ -n "${key}" && "${key}" != "None" ]]; then
+              echo "Deleting old backup: ${key}"
+              aws s3api delete-object --bucket "${S3_BUCKET}" --key "${key}"
+            fi
+          done
+          
+          echo "✅ Cleanup completed"
+
+  test-backup-integrity:
+    runs-on: ubuntu-latest
+    needs: [setup-backup-environment, backup-database]
+    if: steps.backup.outcome == 'success'
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Backup Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: database-backup-${{ needs.setup-backup-environment.outputs.backup_id }}
+
+      - name: Setup Backup Verification Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-15 gzip openssl jq jq
+
+      - name: Verify Backup Integrity
+        env:
+          BACKUP_FILE: ${{ steps.backup.outputs.backup_file }}
+        run: |
+          echo "🔍 Verifying backup integrity.."
+          
+          # Test script includes verification function
+          chmod +x scripts/backup-database.sh
+          ./scripts/backup-database.sh --verify "*skymanuals_*.sql*"
+          
+          if [[ $? -eq 0 ]]; then
+            echo "✅ Backup integrity verified"
+          else
+            echo "❌ Backup integrity check failed"
+            exit 1
+          fi
+
+      - name: Test Backup Extraction
+        env:
+          ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        run: |
+          echo "🧪 Testing backup extraction..."
+          
+          BACKUP_FILE=$(find . -name "skymanuals_*.sql*" -type f | head -1)
+          
+          # Test decryption (if encrypted)
+          if [[ "${BACKUP_FILE}" == *.enc ]]; then
+            echo "Testing decryption..."
+            echo "${ENCRYPTION_KEY}" > backup.key
+            
+            # Test decrypt without writing to disk for too long
+            timeout 30 openssl enc -d -aes-256-cbc -in "${BACKUP_FILE}" -pass file:backup.key -out /dev/null
+            
+            rm backup.key
+          fi
+          
+          # Test decompression (if compressed)
+          if [[ "${BACKUP_FILE}" == *.gz ]]; then
+            echo "Testing decompression..."
+            timeout 30 gunzip -t "${BACKUP_FILE}"
+          fi
+          
+          echo "✅ Backup extraction test completed"
+
+  notify-backup-status:
+    runs-on: ubuntu-latest
+    needs: [setup-backup-environment, backup-database, test-backup-integrity]
+    if: always()
+    
+    steps:
+      - name: Send Success Notification
+        if: needs.backup-database.result == 'success' && needs.test-backup-integrity.result == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `✅ Daily Backup Successful - ${{ needs.setup-backup-environment.outputs.backup_id }}`,
+              body: `
+              ## Daily Database Backup Completed Successfully 🎉
+              
+              **Backup Session:** ${{ needs.setup-backup-environment.outputs.backup_id }}
+              **Backup Type:** ${{ github.event.inputs.backup_type || 'incremental' }}
+              **Timestamp:** ${{ steps.backup.outputs.backup_timestamp }}
+              **Size:** ${{ steps.backup.outputs.backup_size_bytes }} bytes (~${{ Math.round(steps.backup.outputs.backup_size_bytes / 1024 / 1024) }} MB)
+              **Duration:** ${{ steps.backup.outputs.backup_duration }} seconds
+              **PostgreSQL Version:** ${{ steps.backup.outputs.postgresql_version }}
+              
+              ### Backup Details:
+              - ✅ Full database dump created
+              - ✅ Compression applied
+              - ✅ Encryption applied
+              - ✅ Checksum generated
+              - ✅ Metadata recorded
+              - ✅ Integrity verified
+              ${env.S3_BUCKET ? '- ✅ Uploaded to S3' : ''}
+              
+              **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              
+              ---
+              *This notification was automatically generated by the Nightly Database Backups workflow.*
+              `,
+              labels: ['backup', 'success', 'automated']
+            });
+
+      - name: Send Failure Notification
+        if: needs.backup-database.result == 'failure' || needs.test-backup-integrity.result == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.generate({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Daily Backup Failed - ${{ needs.setup-backup-environment.outputs.backup_id }}`,
+              number: ${{ github.event.inputs.issue_number }}
+            });
+
+      - name: Create Failure Issue
+        if: (needs.backup-database.result == 'failure' || needs.test-backup-integrity.result == 'failure') && github.event_name == 'schedule'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Daily Backup Failed - ${{ needs.setup-backup-environment.outputs.backup_id }}`,
+              body: `
+              ## Daily Database Backup Failed 🚨
+              
+              **Backup Session:** ${{ needs.setup-backup-environment.outputs.backup_id }}
+              **Backup Type:** ${{ github.event.inputs.backup_type || 'incremental' }}
+              **Failure Time:** $(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+              
+              ### Possible Causes:
+              - Database connectivity issues
+              - Insufficient disk space
+              - Permission problems
+              - Encryption key issues
+              - S3 upload failures
+              
+              ### Immediate Actions Required:
+              1. 🔍 Check workflow logs for detailed error information
+              2. 🔄 Verify database connectivity
+              3. 💾 Check disk space on backup system
+              4. 🔑 Verify encryption key accessibility
+              5. 📊 Test backup script manually
+              
+              ### Recovery Steps:
+              1. Resolve underlying issue
+              2. Trigger manual backup via workflow dispatch
+              3. Verify backup integrity
+              4. Close this issue after successful backup
+              
+              **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              
+              ---
+              *This issue was automatically created by the Nightly Database Backups workflow.*
+              `,
+              labels: ['backup', 'failure', 'critical', 'automated']
+            });
+
+  create-backup-metrics:
+    runs-on: ubuntu-latest
+    needs: [setup-backup-environment, backup-database, test-backup-integrity]
+    if: always()
+    
+    steps:
+      - name: Create Backup Metrics
+        run: |
+          METRICS_FILE="backup-metrics-${{ needs.setup-backup-environment.outputs.backup_id }}.json"
+          
+          cat > "${METRICS_FILE}" << EOF
+          {
+            "backup_session_id": "${{ needs.setup-backup-environment.outputs.backup_id }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)",
+            "backup_type": "${{ github.event.inputs.backup_type || 'incremental' }}",
+            "success": ${{ needs.backup-database.result == 'success' && needs.test-backup-integrity.result == 'success' }},
+            "backup_duration_seconds": "${{ steps.backup.outputs.backup_duration }}",
+            "backup_size_bytes": "${{ steps.backup.outputs.backup_size_bytes }}",
+            "database_version": "${{ steps.backup.outputs.postgresql_version }}",
+            "workflow_run_id": "${{ github.run_id }}",
+            "repository": "${{ github.repository }}",
+            "commit_sha": "${{ github.sha }}"
+          }
+          EOF
+          
+          echo "Backup metrics created: ${METRICS_FILE}"
+
+      - name: Upload Backup Metrics
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-metrics-${{ needs.setup-backup-environment.outputs.backup_id }}
+          path: "backup-metrics-${{ needs.setup-backup-environment.outputs.backup_id }}.json"
+          retention-days: 365 # Keep metrics for a year

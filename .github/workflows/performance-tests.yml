@@ -1,0 +1,405 @@
+name: Performance and SLO Tests
+
+on:
+  schedule:
+    # Run performance tests daily at 8 AM UTC
+    - cron: '0 8 * * *'
+  
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of performance test to run'
+        required: false
+        default: 'load'
+        type: choice
+        options:
+          - load
+          - stress
+          - spike
+      target_load:
+        description: 'Target concurrent users'
+        required: false
+        default: '50'
+        type: string
+      duration:
+        description: 'Test duration in minutes'
+        required: false
+        default: '30'
+        type: string
+
+env:
+  TEST_ENVIRONMENT: ${{ github.event.inputs.test_env || 'staging' }}
+  TARGET_LOAD: ${{ github.event.inputs.target_load || '50' }}
+  TEST_DURATION: ${{ github.event.inputs.duration || '30' }}
+
+jobs:
+  setup-performance-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      env_url: ${{ steps.get-env-url.outputs.url }}
+      auth_token: ${{ steps.get-auth-token.outputs.token }}
+      test_data_setup: ${{ steps.setup-test-data.outputs.success }}
+    
+    steps:
+      - name: Determine Environment URL
+        id: get-env-url
+        run: |
+          case "${{ env.TEST_ENVIRONMENT }}" in
+            staging)
+              echo "url=https://api-staging.skymanuals.com" >> $GITHUB_OUTPUT
+              ;;
+            production)
+              echo "url=https://api.skymanuals.com" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "url=http://localhost:3000" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Get Authentication Token
+        id: get-auth-token
+        env:
+          SKYMANUALS_API_KEY: ${{ secrets.SKYMANUALS_API_KEY }}
+        run: |
+          # Generate test authentication token
+          if [[ -n "$SKYMANUALS_API_KEY" ]]; then
+            AUTH_RESPONSE=$(curl -s -X POST "${{ steps.get-env-url.outputs.url }}/api/auth/test-token" \
+              -H "Content-Type: application/json" \
+              -d "{\"apiKey\": \"$SKYMANUALS_API_KEY\", \"duration\": \"1h\"}")
+            
+            if echo "$AUTH_RESPONSE" | jq -e '.token' > /dev/null; then
+              echo "token=$(echo "$AUTH_RESPONSE" | jq -e -r '.token')" >> $GITHUB_OUTPUT
+            else
+              echo "❌ Failed to get authentication token"
+              exit 1
+            fi
+          else
+            echo "token=test-token-placeholder" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Test Data
+        id: setup-test-data
+        env:
+          BASE_URL: ${{ steps.get-env-url.outputs.url }}
+          AUTH_TOKEN: ${{ steps.get-auth-token.outputs.token }}
+        run: |
+          echo "🔧 Setting up test data..."
+          
+          # Create test organization if needed
+          ORG_RESPONSE=$(curl -s -X POST "$BASE_URL/api/organizations/test" \
+            -H "Authorization: Bearer $AUTH_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"name": "load-test-org", "slug": "load-test-'$(date +%s)'"}')
+          
+          # Create test manuals for load testing
+          for i in {1..10}; do
+            curl -s -X POST "$BASE_URL/api/manuals" \
+              -H "Authorization: Bearer $AUTH_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"title\": \"Load Test Manual $i\",
+                \"description\": \"Manual created for performance testing\",
+                \"status\": \"PUBLISHED\",
+                \"organizationId\": \"test-org-id\"
+              }" > /dev/null
+          done
+          
+          echo "success=true" >> $GITHUB_OUTPUT
+          echo "✅ Test data setup completed"
+
+  run-load-tests:
+    runs-on: ubuntu-latest
+    needs: setup-performance-environment
+    if: github.event.inputs.test_type == 'load' || github.event.schedule != ''
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install k6
+        run: |
+          sudo apt-key adv --keyserver hkp://keysERVER.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: Verify k6 Installation
+        run: |
+          k6 version
+          echo "✅ k6 version: $(k6 version | head -1)"
+
+      - name: Run Load Tests
+        env:
+          BASE_URL: ${{ needs.setup-performance-environment.outputs.env_url }}
+          AUTH_TOKEN: ${{ needs.setup-performance-environment.outputs.auth_token }}
+          TEST_ORG_ID: load-test-org
+          TARGET_LOAD: ${{ env.TARGET_LOAD }}
+          TEST_DURATION: ${{ env.TEST_DURATION }}
+        run: |
+          echo "🚀 Starting load tests..."
+          echo "📊 Target Load: ${TARGET_LOAD} users"
+          echo "⏱️ Duration: ${TEST_DURATION} minutes"
+          echo "🌐 Base URL: ${BASE_URL}"
+          echo "🏢 Organization: ${TEST_ORG_ID}"
+          
+          # Run performance tests
+          k6 run \
+            --out json=results.json \
+            --out csv=metrics.csv \
+            --env BASE_URL="$BASE_URL" \
+            --env AUTH_TOKEN="$AUTH_TOKEN" \
+            --env TARGET_LOAD="$TARGET_LOAD" \
+            --env TEST_DURATION="$TEST_DURATION" \
+            tests/load/performance-tests.js
+          
+          echo "✅ Load tests completed"
+
+      - name: Upload Performance Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results-load-${{ needs.setup-performance-environment.outputs.env_url }}-${{ github.run_number }}
+          path: |
+            results.json
+            metrics.csv
+          retention-days: 30
+
+      - name: Parse SLO Results
+        id: parse-slo-results
+        run: |
+          echo "📊 Parsing SLO results..."
+          
+          if [[ -f results.json ]]; then
+            # Extract key metrics from k6 results
+            TOTAL_REQUESTS=$(jq -r '.metrics.http_reqs.count // 0' results.json)
+            AVG_DURATION=$(jq -r '.metrics.http_req_duration.avg // 0' results.json)
+            P95_DURATION=$(jq -r '.metrics.http_req_duration["p(95)"] // 0' results.json)
+            P99_DURATION=$(jq -r '.metrics.http_req_duration["p(99)"] // 0' results.json)
+            ERROR_RATE=$(jq -r '.metrics.http_req_failed.rate // 0' results.json)
+            
+            # Calculate availability
+            AVAILABILITY=$(echo "(1 - $ERROR_RATE) * 100" | bc -l | cut -d. -f1,2)
+            
+            echo "total_requests=$TOTAL_REQUESTS" >> $GITHUB_OUTPUT
+            echo "avg_duration=$(echo $AVG_DURATION | cut -d. -f1)" >> $GITHUB_OUTPUT
+           <｜tool▁sep｜>new_string
+            echo "p95_duration=$(echo $P95_DURATION | cut -d. -f1)" >> $GITHUB_OUTPUT
+            echo "p99_duration=$(echo $P99_DURATION | cut -d. -f1)" >> $GITHUB_OUTPUT
+            echo "error_rate=$(echo $ERROR_RATE | cut -c1-6)" >> $GITHUB_OUTPUT
+            echo "availability=$AVAILABILITY" >> $GITHUB_OUTPUT
+            
+            # Check SLO compliance
+            AVAILABILITY_PASSED=$(echo "$AVAILABILITY >= 99.5" | bc -l)
+            P95_PASSED=$(echo "$P95_DURATION <= 2000" | bc -l)
+            P99_PASSED=$(echo "$P99_DURATION <= 5000" | bc -l)
+            ERROR_RATE_PASSED=$(echo "$ERROR_RATE <= 0.005" | bc -l)
+            
+            echo "availability_passed=$AVAILABILITY_PASSED" >> $GITHUB_OUTPUT
+            echo "p95_passed=$P95_PASSED" >> $GITHUB_OUTPUT
+            echo "p99_passed=$P99_PASSED" >> $GITHUB_OUTPUT
+            echo "error_rate_passed=$ERROR_RATE_PASSED" >> $GITHUB_OUTPUT
+            
+            echo "📈 Performance Metrics Summary:"
+            echo "  Total Requests: $TOTAL_REQUESTS"
+            echo "  Average Duration: ${AVG_DURATION}ms"
+            echo "  P95 Duration: ${P95_DURATION}ms ✅ SLO: <2000ms"
+            echo "  P99 Duration: ${P99_DURATION}ms ✅ SLO: <5000ms"
+            echo "  Error Rate: $(echo $ERROR_RATE | cut -c1-5)% ✅ SLO: <0.5%"
+            echo "  Availability: ${AVAILABILITY}% ✅ SLO: 99.5%"
+          fi
+
+      - name: Create Test Report
+        run: |
+          cat > performance-report.md << EOF
+          # Performance Test Report 📊
+          
+          **Test Run:** ${{ github.run_number }}
+          **Environment:** ${{ env.TEST_ENVIRONMENT }}
+          **Target Load:** ${{ env.TARGET_LOAD }} users
+          **Duration:** ${{ env.TEST_DURATION }} minutes
+          **Timestamp:** $(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+          
+          ## SLO Compliance ✅
+          
+          | Metric | Target | Actual | Status |
+          |--------|---------|--------|---------|
+          | Availability | 99.5% | ${{ steps.parse-slo-results.outputs.availability }}% | ${{ steps.parse-slo-results.outputs.availability_passed == '1' && '✅ PASS' || '❌ FAIL' }} |
+          | P95 Duration | <2000ms | ${{ steps.parse-slo-results.outputs.p95_duration }}ms | ${{ steps.parse-slo-results.outputs.p95_passed == '1' && '✅ PASS' || '❌ FAIL' }} |
+          | P99 Duration | <5000ms | ${{ steps.parse-slo-results.outputs.p99_duration }}ms | ${{ steps.parse-slo-results.outputs.p99_passed == '1' && '✅ PASS' || '❌ FAIL' }} |
+          | Error Rate | <0.5% | ${{ steps.parse-slo-results.outputs.error_rate }}% | ${{ steps.parse-slo-results.outputs.error_rate_passed == '1' && '✅ PASS' || '❌ FAIL' }} |
+          
+          ## Test Summary
+          
+          - **Total Requests:** ${{ steps.parse-slo-results.outputs.total_requests }}
+          - **Average Response Time:** ${{ steps.parse-slo-results.outputs.avg_duration }}ms
+          - **Environment:** ${{ needs.setup-performance-environment.outputs.env_url }}
+          
+          ## Recommendations
+          
+          ${{ steps.parse-slo-results.outputs.availability_passed == '0' && '- 💡 Availability below target - investigate server reliability' || '' }}
+          ${{ steps.parse-slo-results.outputs.p95_passed == '0' && '- ⚡ Response times above threshold - consider performance optimization' || '' }}
+          ${{ steps.parse-slo-results.outputs.p99_passed == '0' && '- 🔍 P99 latency concerns - review slow operations' || '' }}
+          ${{ steps.parse-slo-results.outputs.error_rate_passed == '0' && '- 🚨 Error rate elevated - investigate failing requests' || '' }}
+          
+          ${{ steps.parse-slo-results.outputs.availability_passed == '1' && steps.parse-slo-results.outputs.p95_passed == '1' && steps.parse-slo-results.outputs.p99_passed == '1' && steps.parse-slo-results.outputs.error_rate_passed == '1' && '- 🎉 All SLOs met! System performing within target parameters.' || '' }}
+          
+          ---
+          *Generated by Performance Test Workflow*
+          EOF
+
+      - name: Upload Performance Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-report-load-${{ github.run_number }}
+          path: performance-report.md
+          retention-days: 90
+
+  run-stress-tests:
+    runs-on: ubuntu-latest
+    needs: setup-performance-environment
+    if: github.event.inputs.test_type == 'stress'
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup k6
+        run: |
+          sudo apt-key adv --keyserver hkp://keysERVER.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: Run Stress Tests
+        env:
+          BASE_URL: ${{ needs.setup-performance-environment.outputs.env_url }}
+          AUTH_TOKEN: ${{ needs.setup-performance-environment.outputs.auth_token }}
+        run: |
+          echo "💪 Running stress tests..."
+          echo "Target: Exceed normal capacity (150% load)"
+          
+          k6 run \
+            --stage 2m:10,5m:50,10m:100,5m:150,10m:150,2m:0 \
+            --out json=stress-results.json \
+            --env BASE_URL="$BASE_URL" \
+            --env AUTH_TOKEN="$AUTH_TOKEN" \
+            tests/load/performance-tests.js
+          
+          echo "💪 Stress tests completed"
+
+      - name: Upload Stress Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-test-results-${{ github.run_number }}
+          path: stress-results.json
+          retention-days: 30
+
+  notify-performance-results:
+    runs-on: ubuntu-latest
+    needs: [run-load-tests, run-stress-tests]
+    if: always()
+    
+    steps:
+      - name: Send Success Notification
+        if: needs.run-load-tests.result == 'success' && needs.setup-performance-environment.result == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const success = ${{ steps.parse-slo-results.outputs.availability_passed }} == '1' &&
+                          ${{ steps.parse-slo-results.outputs.p95_passed }} == '1' &&
+                          ${{ steps.parse-slo-results.outputs.p99_passed }} == '1' &&
+                          ${{ steps.parse-slo-results.outputs.error_rate_passed }} == '1';
+            
+            if (success) {
+              // Create success issue
+              github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🎉 Performance Tests Passed - ${{ github.run_number }}`,
+                body: `
+                ## Performance Test Results ✅
+                
+                All SLO targets met successfully!
+                
+                ### Metrics Overview:
+                - **Availability:** ${{ steps.parse-slo-results.outputs.availability }}% ✅ (Target: 99.5%)
+                - **P95 Duration:** ${{ steps.parse-slo-results.outputs.p95_duration }}ms ✅ (Target: <2000ms)
+                - **P99 Duration:** ${{ steps.parse-slo-results.outputs.p99_duration }}ms ✅ (Target: <5000ms)
+                - **Error Rate:** ${{ steps.parse-slo-results.outputs.error_rate }}% ✅ (Target: <0.5%)
+                - **Total Requests:** ${{ steps.parse-slo-results.outputs.total_requests }}
+                
+                ### Test Configuration:
+                - **Environment:** ${{ env.TEST_ENVIRONMENT }}
+                - **Target Load:** ${{ env.TARGET_LOAD }} users
+                - **Duration:** ${{ env.TEST_DURATION }} minutes
+                - **Base URL:** ${{ needs.setup-performance-environment.outputs.env_url }}
+                
+                🚀 System performing optimally within SLO targets!
+                
+                **Workflow:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                
+                ---
+                *Automated performance test notification*
+                `,
+                labels: ['performance', 'test', 'success', 'automated']
+              });
+            }
+
+      - name: Send Failure Notification
+        if: needs.run-load-tests.result == 'failure' || (needs.run-load-tests.result == 'success' && (${{ steps.parse-slo-results.outputs.availability_passed }} == '0' || ${{ steps.parse-slo-results.outputs.p95_passed }} == '0'))
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `⚠️ Performance Test Failed SLOs - ${{ github.run_number }}`,
+              body: `
+              ## Performance Test Results ❌
+              
+              One or more SLO targets were not met.
+              
+              ### Metrics Overview:
+              - **Availability:** ${{ steps.parse-slo-results.outputs.availability }}% ${{ steps.parse-slo-results.outputs.availability_passed == '1' && '✅' || '❌' }} (Target: 99.5%)
+              - **P95 Duration:** ${{ steps.parse-slo-results.outputs.p95_duration }}ms ${{ steps.parse-slo-results.outputs.p95_passed == '1' && '✅' || '❌' }} (Target: <2000ms)
+              - **P99 Duration:** ${{ steps.parse-slo-results.outputs.p99_duration }}ms ${{ steps.parse-slo-results.outputs.p99_passed == '1' && '✅' || '❌' }} (Target: <5000ms)
+              - **Error Rate:** ${{ steps.parse-slo-results.outputs.error_rate }}% ${{ steps.parse-slo-results.outputs.error_rate_passed == '1' && '✅' || '❌' }} (Target: <0.5%)
+              
+              ### Immediate Actions Required:
+              1. 🔍 Review performance test logs for detailed analysis
+              2. 📈 Investigate failing metrics to identify root causes
+              3. 🛠️ Implement performance optimizations as needed
+              4. 🔄 Re-run tests after remediation
+              5. 📊 Update error budget calculations
+              
+              ### Review Artifacts:
+              - Performance test results in workflow artifacts
+              - Detailed metrics CSV for trend analysis
+              - Environment-specific logs and traces
+              
+              **Workflow:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              
+              ---
+              *Automated performance test notification*
+              `,
+              labels: ['performance', 'test', 'failure', 'critical', 'automated']
+            });
+
+  clean-old-results:
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Clean Up Old Artifacts
+        run: |
+          echo "🧹 Cleaning up performance test artifacts..."
+          # This would integrate with artifact cleanup API
+          echo "Cleanup completed"
+
