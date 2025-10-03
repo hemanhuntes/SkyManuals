@@ -65,6 +65,15 @@ model Organization {
   // Epic-03 Relations
   featureFlags FeatureFlag[]
   
+  // Epic-04 Relations
+  complianceAlerts ComplianceAlert[]
+  auditChecklists AuditChecklist[]
+  libraryUpdateJobs LibraryUpdateJob[]
+  complianceAnalytics ComplianceAnalytics[]
+  
+  // Epic-05 Relations
+  searchIndexes SearchIndex[]
+  
   @@map("organizations")
 }
 
@@ -110,6 +119,14 @@ model Manual {
   operationallyCriticalFlags OperationallyCriticalFlag[]
   readerAnalytics ReaderAnalytics[]
   
+  // Epic-04 Relations
+  complianceLinks ComplianceLink[]
+  auditChecklists AuditChecklist[]
+  coverageAnalyses CoverageAnalysis[]
+  
+  // Epic-05 Relations
+  searchIndexes SearchIndex[]
+  
   @@map("manuals")
 }
 
@@ -124,6 +141,9 @@ model Chapter {
   // Relations
   manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
   sections Section[]
+  
+  // Epic-05 Relations
+  searchIndexes SearchIndex[]
   
   @@unique([manualId, number])
   @@map("chapters")
@@ -143,6 +163,9 @@ model Section {
   blocks Block[]
   editorSessions EditorSession[]
   
+  // Epic-05 Relations
+  searchIndexes SearchIndex[]
+  
   @@unique([chapterId, number])
   @@map("sections")
 }
@@ -159,6 +182,9 @@ model Block {
   
   // Relations
   section Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  
+  // Epic-05 Relations
+  searchIndexes SearchIndex[]
   
   @@map("blocks")
 }
@@ -857,4 +883,500 @@ enum ReaderEventType {
   SUGGEST_EDIT
   BOOKMARK
   DOWNLOAD
+}
+
+// Epic-04: Compliance Monitoring Models
+
+model RegulationLibrary {
+  id               String @id @default(cuid())
+  source           String // e.g., 'ICAO', 'EASA', 'FAA', 'EU-OPS'
+  region           String // e.g., 'EU', 'US', 'GLOBAL', 'NORTH_ATLANTIC'
+  title            String
+  description      String?
+  version          String
+  effectiveDate    DateTime
+  expiryDate       DateTime?
+  url              String?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  regulationItems RegulationItem[]
+  complianceLinks ComplianceLink[]
+  impactAnalyses ImpactAnalysis[]
+  auditChecklists AuditChecklist[]
+  libraryUpdateJobs LibraryUpdateJob[]
+  
+  @@map("regulation_libraries")
+}
+
+model RegulationItem {
+  id                String @id @default(cuid())
+  regulationLibraryId String
+  regulationType    RegulationType
+  reference         String // e.g., 'AMC1.OP.MLR.100', 'FAR 121.101'
+  title             String
+  content           String
+  category          RegulationCategory
+  priority          RegulationPriority
+  applicability     Json // Aircraft types, operators, routes, conditions
+  relatedRegulations String[] // References to other regulation IDs
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  regulationLibrary RegulationLibrary @relation(fields: [regulationLibraryId], references: [id], onDelete: Cascade)
+  complianceLinks ComplianceLink[]
+  auditChecklistItems AuditChecklistItem[]
+  complianceAlerts ComplianceAlert[]
+  
+  @@map("regulation_items")
+  @@unique([regulationLibraryId, reference])
+}
+
+model ComplianceLink {
+  id               String @id @default(cuid())
+  manualId         String
+  chapterId       String
+  sectionId        String
+  blockId          String? // Optional paragraph-level linking
+  regulationItemId String
+  regulationLibraryId String
+  linkType         ComplianceLinkType
+  relationship     ComplianceRelationship
+  confidence       Int // AI confidence score (0-100)
+  createdBy        String
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  status           ComplianceLinkStatus @default(DRAFT)
+  notes            String?
+  evidence         String[] // Supporting documentation URLs
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  regulationItem RegulationItem @relation(fields: [regulationItemId], references: [id], onDelete: Cascade)
+  regulationLibrary RegulationLibrary @relation(fields: [regulationLibraryId], references: [id], onDelete: Cascade)
+  auditChecklistItem AuditChecklistItem?
+  complianceAlerts ComplianceAlert[]
+  
+  @@map("compliance_links")
+}
+
+model ComplianceAlert {
+  id                     String @id @default(cuid())
+  organizationId         String
+  alertType              ComplianceAlertType
+  severity               ComplianceSeverity
+  title                  String
+  description            String
+  affectedManualIds      String[]
+  affectedComplianceLinks String[]
+  regulationItemId       String?
+  dueDate                DateTime?
+  status                 ComplianceAlertStatus @default(ACTIVE)
+  assignedTo             String?
+  acknowledgedBy         String?
+  acknowledgedAt         DateTime?
+  resolvedBy             String?
+  resolvedAt             DateTime?
+  resolutionNotes        String?
+  metadata               Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  regulationItem RegulationItem @relation(fields: [regulationItemId], references: [id], onDelete: Cascade)
+  complianceLinks ComplianceLink[]
+  
+  @@map("compliance_alerts")
+}
+
+model AuditChecklist {
+  id                  String @id @default(cuid())
+  organizationId      String
+  manualId            String?
+  title               String
+  description         String?
+  auditType           AuditType
+  auditScope          AuditScope
+  regulationLibraryIds String[]
+  coverageRegions     String[]
+  scheduledDate       DateTime
+  completionDate      DateTime?
+  auditorId           String?
+  auditorName         String?
+  auditStatus         AuditStatus @default(SCHEDULED)
+  statistics          Json // Total, completed, failed items etc.
+  metadata            Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items AuditChecklistItem[]
+  regulationLibs RegulationLibrary[]
+  
+  @@map("audit_checklists")
+}
+
+model AuditChecklistItem {
+  id                 String @id @default(cuid())
+  checklistId        String
+  regulationItemId   String
+  complianceLinkId   String?
+  question           String
+  description        String?
+  applicableManualIds String[]
+  evidenceRequired    String[]
+  checkType          CheckType
+  priority           AuditPriority
+  status             AuditItemStatus @default(NOT_STARTED)
+  checkedBy          String?
+  checkedAt          DateTime?
+  findings           String?
+  recommendations    String?
+  attachments        String[]
+  metadata           Json?
+  
+  // Relations
+  checklist AuditChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  regulationItem RegulationItem @relation(fields: [regulationItemId], references: [id], onDelete: Cascade)
+  complianceLink ComplianceLink @relation(fields: [complianceLinkId], references: [id])
+  
+  @@map("audit_checklist_items")
+}
+
+model ImpactAnalysis {
+  id                  String @id @default(cuid())
+  triggerType         ImpactTriggerType
+  regulationLibraryId String
+  oldVersion          String?
+  newVersion          String
+  analysisScope       Json // Organization IDs, manual IDs, regulation item IDs
+  results             Json // Affected paragraphs, new/modified requirements, risk assessment
+  recommendations      Json // Priority actions, responsible parties, deadlines
+  automatedChecklistId String?
+  status              ImpactAnalysisStatus @default(PENDING)
+  analyzedBy          String?
+  reviewedBy          String?
+  reviewedAt          DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Relations
+  regulationLibrary RegulationLibrary @relation(fields: [regulationLibraryId], references: [id], onDelete: Cascade)
+  
+  @@map("impact_analyses")
+}
+
+model CoverageAnalysis {
+  id               String @id @default(cuid())
+  organizationId   String
+  manualId         String
+  analysisDate     DateTime @default(now())
+  scope            Json // Total vs linked paragraphs
+  byChapter        Json // Coverage by chapter
+  byRegulation     Json // Coverage by regulation library
+  recommendations  Json // Suggested regulations for unlinked paragraphs
+  metadata         Json?
+  
+  @@map("coverage_analyses")
+}
+
+model LibraryUpdateJob {
+  id                    String @id @default(cuid())
+  organizationId        String
+  regulationLibraryId   String
+  updateType            UpdateType
+  oldVersion            String?
+  newVersion           String
+  description          String
+  changes              Json // Added, modified, deleted, renumbered
+  effectiveDate        DateTime
+  implementationDeadline DateTime?
+  notificationDate     DateTime
+  status               JobStatus @default(PENDING)
+  processingStartedAt  DateTime?
+  processingCompletedAt DateTime?
+  errorMessage         String?
+  impactAnalysisId     String?
+  generatedAlertIds    String[]
+  generatedChecklistIds String[]
+  metadata             Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  regulationLibrary RegulationLibrary @relation(fields: [regulationLibraryId], references: [id], onDelete: Cascade)
+  
+  @@map("library_update_jobs")
+}
+
+model ComplianceAnalytics {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+  action         ComplianceAction
+  targetId       String // ComplianceLink, ComplianceAlert, or AuditChecklist ID
+  metadata       Json?
+  timestamp      DateTime @default(now())
+  
+  @@map("compliance_analytics")
+}
+
+// Epic-04 Enums
+
+enum RegulationType {
+  ARTICLE
+  PARAGRAPH
+  SECTION
+  ANNEX
+  APPENDIX
+  AMC
+  GM
+  OTHER
+}
+
+enum RegulationCategory {
+  OPERATIONAL
+  SAFETY
+  MAINTENANCE
+  TRAINING
+  EQUIPMENT
+  DOCUMENTATION
+  OTHER
+}
+
+enum RegulationPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum ComplianceLinkType {
+  DIRECT
+  INDIRECT
+  REQUIREMENT
+  REFERENCE
+  IMPLEMENTATION
+}
+
+enum ComplianceRelationship {
+  IMPLEMENTS
+  REFERENCES
+  COMPLIES_WITH
+  CONTRAVENES
+  RELATED_TO
+}
+
+enum ComplianceLinkStatus {
+  DRAFT
+  ACTIVE
+  QUESTIONED
+  INVALID
+}
+
+enum ComplianceAlertType {
+  REGULATION_UPDATE
+  COMPLIANCE_GAP
+  EXPIRING_REGULATION
+  NEW_REQUIREMENT
+  RISK_ASSESSMENT
+}
+
+enum ComplianceSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum ComplianceAlertStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  MITIGATED
+  RESOLVED
+  DISMISSED
+}
+
+enum AuditType {
+  REGULATORY
+  COMPLIANCE
+  SAFETY
+  OPERATIONAL
+  MAINTENANCE
+  TRAINING
+}
+
+enum AuditScope {
+  MANUAL
+  OPERATIONS
+  SAFETY
+  MAINTENANCE
+  TRAINING
+  COMPREHENSIVE
+}
+
+enum AuditStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum CheckType {
+  INSPECTION
+  VERIFICATION
+  DOCUMENTATION
+  PROCEDURAL
+  TRAINING
+}
+
+enum AuditPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum AuditItemStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  N_A
+}
+
+enum ImpactTriggerType {
+  REGULATION_UPDATE
+  MANUAL_CHANGE
+  SCHEDULED_ASSESSMENT
+  NON_CONFORMITY
+}
+
+enum ImpactAnalysisStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  REQUIRES_REVIEW
+}
+
+enum UpdateType {
+  MAJOR
+  MINOR
+  PATCH
+  NEW_REGULATION
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ComplianceAction {
+  LINK_CREATED
+  LINK_UPDATED
+  LINK_DELETED
+  ALERT_VIEWED
+  CHECKLIST_ACCESSED
+  IMPACT_ANALYZED
+}
+
+// Epic-05: AI-driven Semantic Search Models
+
+model SearchIndex {
+  id              String   @id @default(cuid())
+  contentHash     String   @unique
+  manualId        String
+  chapterId       String
+  sectionId       String
+  paragraphId     String?
+  version         String
+  contentType     ContentType
+  title           String
+  content         Text
+  semanticVector  Unsupported("vector(768)")? // OpenAI embedding vector
+  bm25Tokens      String[] @default([])
+  wordCount       Int
+  anchorIds       String[] @default([])
+  organizationId  String
+  isReleased      Boolean
+  indexedAt       DateTime @default(now())
+
+  // Relations
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  manual          Manual       @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  chapter         Chapter      @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  section         Section      @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  paragraph       Block?       @relation(fields: [paragraphId], references: [id], onDelete: Cascade)
+
+  @@map("search_index")
+  @@index([manualId, isReleased])
+  @@index([organizationId, isReleased])
+  @@index([version])
+  @@index([contentType])
+}
+
+model IndexingJob {
+  id            String         @id @default(cuid())
+  type          IndexingType
+  status        JobStatus
+  progress      Json // { totalItems, processedItems, failedItems, currentPhase }
+  triggeredBy   String
+  startedAt     DateTime?
+  completedAt   DateTime?
+  errorMessage  String?
+  metadata      Json?
+
+  @@map("indexing_jobs")
+}
+
+model SearchAnalytics {
+  id             String           @id @default(cuid())
+  query          String
+  userId         String?
+  sessionId      String?
+  responseTimeMs Int
+  resultCount    Int
+  resultScores   Float[]
+  clickCount     Int              @default(0)
+  outcome        SearchOutcome     @default(NO_CLICK)
+  userAgent      String?
+  timestamp      DateTime         @default(now())
+
+  @@map("search_analytics")
+  @@index([query])
+  @@index([timestamp])
+  @@index([userId])
+}
+
+// Enums for Epic-05
+
+enum ContentType {
+  PARAGRAPH
+  SECTION
+  CHAPTER
+}
+
+enum IndexingType {
+  FULL_RECREATE
+  INCREMENTAL
+  MANUAL_TRIGGER
+}
+
+enum SearchOutcome {
+  SATISFIED
+  DISSAISFIED
+  NO_CLICK
 }

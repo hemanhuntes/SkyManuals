@@ -24,6 +24,18 @@ import { ReaderService } from './reader/reader.service';
 import { PublishPipelineService } from './publish-pipeline/publish-pipeline.service';
 import { SearchIndexService } from './search-engine/search-index.service';
 
+// Epic-04 Components
+import { ComplianceController } from './compliance/compliance.controller';
+import { RegulationLibraryService } from './compliance/regulation-library.service';
+import { ComplianceLinkService } from './compliance/compliance-link.service';
+import { ImpactAnalysisService } from './compliance/impact-analysis.service';
+
+// Epic-05 Components
+import { SearchController } from './search/search.controller';
+import { SearchService } from './search/search.service';
+import { IndexingService } from './search/indexing.service';
+import { GuardrailsService } from './search/guardrails.service';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -37,6 +49,8 @@ import { SearchIndexService } from './search-engine/search-index.service';
     TasksController,
     CommentsController,
     ReaderController,
+    ComplianceController,
+    SearchController,
   ],
   providers: [
     PrismaService,
@@ -49,6 +63,12 @@ import { SearchIndexService } from './search-engine/search-index.service';
     ReaderService,
     PublishPipelineService,
     SearchIndexService,
+    RegulationLibraryService,
+    ComplianceLinkService,
+    ImpactAnalysisService,
+    SearchService,
+    IndexingService,
+    GuardrailsService,
   ],
 })
 export class AppModule {}
