@@ -2500,3 +2500,208 @@ enum AnalyticsPeriod {
   MONTHLY
   YEARLY
 }
+
+// ===============================================
+// EPIC-10: AVIATION-COMPLIANT AUDIT LOGGING
+// ===============================================
+
+model AuditLog {
+  id                   String   @id @default(cuid())
+  
+  // Core audit fields
+  entityType          AuditEntityType
+  entityId            String
+  action              String
+  userId              String
+  organizationId      String
+  timestamp           DateTime  @default(now())
+  
+  // Change tracking
+  oldValues           String?   // JSON string
+  newValues           String?   // JSON string
+  metadata            String?   // JSON string
+  
+  // Aviation compliance fields
+  complianceMetadata  String?   // ComplianceMetadataSchema JSON
+  regulatoryFramework String?   // EASA, FAA, ICAO, etc.
+  certificationLevel  AuditCertificationLevel?
+  effectiveDate       DateTime?
+  retentionPeriodDays Int?
+  documentSource      AuditDocumentSource?
+  
+  // Integrity & security
+  integrityHash       String    // Chain of custody verification
+  previousHash        String?   // Previous audit entry hash
+  
+  // Request context
+  ipAddress          String?
+  userAgent          String?
+  sessionId          String?
+  
+  createdAt          DateTime  @default(now())
+
+  @@index([entityType])
+  @@index([entityId])
+  @@index([organizationId])
+  @@index([timestamp])
+  @@index([regulatoryFramework])
+  @@index([certificationLevel])
+  @@index([integrityHash])
+  @@index([complianceMetadata])
+}
+
+enum AuditEntityType {
+  Manual
+  Chapter
+  Section
+  Block
+  User
+  Organization
+  Device
+  Workflow
+  Compliance
+  Regulation
+  DevicePolicy
+}
+
+enum AuditCertificationLevel {
+  OPERATIONAL
+  SAFETY
+  MAINTENANCE
+  TRAINING
+  CRITICAL_SAFETY
+  EMERGENCY
+}
+
+enum AuditDocumentSource {
+  OEM
+  AUTHORED
+  IMPORTED
+  APPROVED
+  REGULATORY
+}
+
+// Backup & Disaster Recovery Configuration
+model BackupConfiguration {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  schedule             String   // Cron expression
+  retentionDays        Int      @default(30)
+  compressionEnabled   Boolean  @default(true)
+  encryptionEnabled    Boolean  @default(true)
+  s3Enabled            Boolean  @default(false)
+  s3Bucket             String?
+  s3Prefix             String?
+  localPath            String?
+  password             String?  // Encrypted backup password
+  enabled              Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  @@index([organizationId])
+  @@index([enabled])
+}
+
+model BackupJob {
+  id                   String   @id @default(cuid())
+  configId             String
+  organizationId       String
+  status               BackupStatus
+  startTime            DateTime
+  endTime              DateTime?
+  duration             Int?     // seconds
+  sizeBytes            BigInt?
+  compressedSizeBytes  BigInt?
+  checksum             String?
+  error                String?
+  backupPath           String
+  metadata             Json?
+  createdAt            DateTime @default(now())
+  
+  @@index([status])
+  @@index([createdAt])
+  @@index([organizationId])
+}
+
+enum BackupStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// Performance Monitoring
+model PerformanceAlert {
+  id                   String   @id @default(cuid())
+  metricName           String
+  condition            AlertCondition
+  threshold            Float
+  currentValue         Float
+  severity             AlertSeverity
+  message              String
+  organizationId       String?
+  resolved             Boolean  @default(false)
+  resolvedAt           DateTime?
+  createdAt            DateTime @default(now())
+  
+  @@index([metricName])
+  @@index([severity])
+  @@index([resolved])
+  @@index([organizationId])
+}
+
+enum AlertCondition {
+  GT
+  LT
+  EQ
+  GTE
+  LTE
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+// Security Monitoring
+model SecurityAlert {
+  id                   String   @id @default(cuid())
+  alertType            SecurityAlertType
+  severity             SecuritySeverity
+  title                String
+  description          String
+  source               String   // IP, user, endpoint
+  metadata             Json?
+  triggeredAt          DateTime @default(now())
+  resolvedAt           DateTime?
+  acknowledgedBy       String?
+  resolved             Boolean  @default(false)
+  
+  @@index([alertType])
+  @@index([severity])
+  @@index([triggeredAt])
+  @@index([resolved])
+}
+
+enum SecurityAlertType {
+  LOGIN_FAILURE_SPIKE
+  SUSPICIOUS_ACTIVITY
+  RATE_LIMIT_EXCEEDED
+  SQL_INJECTION_ATTEMPT
+  XSS_ATTEMPT
+  BRUTE_FORCE_ATTACK
+  UNAUTHORIZED_ACCESS
+  DATA_EXFILTRATION
+  MALWARE_DETECTION
+  COMPLIANCE_VIOLATION
+}
+
+enum SecuritySeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
