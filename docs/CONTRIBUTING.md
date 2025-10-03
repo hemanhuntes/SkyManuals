@@ -137,15 +137,17 @@ När du skapar en Pull Request, se till:
 ### Code Review Kriterier
 
 **Måste ha:**
-- Functionality werkt som förväntat
-- Codig är läsbar och välkommenterad
-- Tester täcker ny funktionalitet
+- Functionality fungerar som förväntat
+- Kod är läsbar och välkommenterad
+- Tester täcker ny funktionalitet (minst 80% coverage för kritisk kod)
 - Inga säkerhetsrisk för introduktions
+- Aviation compliance valideted för relevanta ändringar
 
 **Bör ha:**
 - Prestanda optimeringar där relevant
-- Dokumentaktion för komplex logik
+- Dokumentation för komplex logik
 - Edge cases hanterade
+- Load testing för API-endpoints med >100 req/s
 
 ### Merge Process
 
@@ -187,25 +189,42 @@ npm run db:generate --workspace=apps/api
 npm run db:studio --workspace=apps/api
 ```
 
-### Testing Strategies
+### Testing Strategies & Coverage Requirements
 
-**Unit Tests:** 
+**Unit Tests:** Måste ha >= 80% coverage för kritisk kod
 ```bash
 npm run test --workspace=apps/web
 npm run test --workspace=apps/api
+npm run test:coverage  # Visar coverage report
 ```
 
-**Integration Tests:**
+**Integration Tests:** Med databas och Redis
 ```bash
-# Med databas och Redis
 docker-compose up -d postgres redis
 npm run test:integration
 ```
 
 **E2E Tests:**
 ```bash
-npm run smoke
+npm run smoke        # Smoke tests för grundfunktionalitet
+npm run test:e2e     # Playwright e2e tests
 ```
+
+**Load Testing:** För API performance validation
+```bash
+npm run test:load     # k6 load tests för /api/* endpoints
+```
+
+**Security Testing:** 
+```bash
+npm run test:security # snyk vuln scan + npm audit
+npm audit --audit-level=high
+```
+
+**Aviation-Specific Testing:**
+- EFB offline simulation (airplane mode scenarios)
+- Document sync conflict resolution testing
+- Regulatory compliance validation tests
 
 ## Paketversionering och Releases
 
@@ -219,8 +238,9 @@ npm run changeset
 
 Detta öppnar en interaktiv CLI för att:
 - Välj vilka paket som har ändrats
-- Sammanfatta ändringen
+- Sammanfatta ändringen för changelog
 - Välj version bump (major/minor/patch)
+- Specificera om ändringen kräver migrations eller konfigurationsändringar
 
 ### Release Process
 
@@ -257,6 +277,27 @@ npm run build
 **TypeScript errors:**
 ```bash
 npm run typecheck
+```
+
+**Aviation-specific troubleshooting:**
+
+**EFB Sync issues:**
+```bash
+# Clear EFB cache och reinitiate sync
+npm run dev --workspace=apps/efb -- --reset-cache
+```
+
+**Compliance validation errors:**
+```bash
+# Regenerate audit logs och validate integrity
+npm run db:seed --workspace=apps/api
+npm run test:compliance
+```
+
+**Performance issues:**
+```bash
+# Run load tests för diagnostik
+npm run test:load -- --threshold p95=1500ms
 ```
 
 ### Få Hjälp

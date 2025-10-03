@@ -1,8 +1,8 @@
-# SkyManuals Arkitektur
+# SkyManuals Aviation Platform Architecture
 
-## Översikt
+## Overview
 
-SkyManuals är en production-ready monorepo som hanterar flygplatstillstånd och dokumentation. Systemet består av tre huvudsakliga applikationer som arbetar tillsammans för att leverera en komplett lösning för flygindustrin.
+SkyManuals är en **production-ready aviation platform** som hanterar Electronic Flight Bag (EFB) dokumentation, maintenance manuals, och flight operations procedures. Systemet är designat för **strict regulatory compliance** (EASA/FAA) med fokus på offline-first operations och flight safety.
 
 ## Systemarkitektur
 
@@ -113,15 +113,41 @@ graph TB
 - **Innehåll**: ESLint, Prettier, TypeScript configs
 - **Versionshantering**: Enhetlig kodstandard
 
-## Data Arkitektur
+## Aviation Data Model
 
-### PostgreSQL Databas
+### Document Management Schema
 ```sql
--- Huvudtabeller
-Organizations: id, name, slug, logo_url
-Users: id, email, name, org_id, role
-Documents: id, title, content, vectors, org_id
-Permissions: user_id, document_id, permission_level
+-- Aviation-compliant document structure
+Documents:
+  - id, org_id, document_type (AFM/MMEL/SOP/etc.)
+  - title, content, vectors, version
+  - status (DRAFT/APPROVED/ARCHIVED)
+  - effective_date, expiry_date
+  - checksum, approved_by, approved_at
+  
+Document_Revisions:
+  - id, document_id, version
+  - content, changed_by, changed_at
+  - change_description, approval_chain
+  
+Audit_Logs:
+  - id, entity_type, entity_id
+  - action, user_id, timestamp
+  - old_values, new_values, integrity_hash
+```
+
+### Compliance & Regulatory Tracking
+```sql
+-- Aviation compliance models
+RegulatoryFramework:
+  - id, source (EASA/FAA/Icao), region
+  - title, version, effective_date
+  - compliance_requirements
+  
+ComplianceLinks:
+  - id, document_id, regulation_id
+  - link_type, confidence_score
+  - reviewed_by, review_date
 ```
 
 ### Redis Cache
@@ -129,10 +155,22 @@ Permissions: user_id, document_id, permission_level
 - **API Cache**: Sökresultat och ofta begärda data
 - **Rate Limiting**: Skydd mot överbelastning
 
-### EFB Offline Storage
-- **Kritiska dokument**: Lokalt sparade PDFs/manuals
-- **Metadata**: Sökindex för offline-sökning
-- **Deltas**: Endast ändringar synkas
+### EFB Offline Sync Strategy
+- **Critical Documents Priority**: AFM, MMEL, Emergency Procedures first
+- **Conflict Resolution**: Server-wins för regulatory docs, Client-wins för annotations
+- **Sync Stages**: Pre-flight (critical), Mid-flight (high-priority), Maintenance (operational)
+- **Chain of Custody**: SHA-256 hash verification för integrity
+- **Extended Offline**: 72+ hour operation capability with conflict management
+
+#### Sync Priority Matrix
+```
+CRITICAL_SAFETY (Level 1):    AFM, MMEL, Emergency Procedures
+HIGH_SAFETY (Level 2):        SOPs, Checklists, Flight Manuals  
+OPERATIONAL (Level 3):        Charts, Airport Information
+MAINTENANCE (Level 4):        Technical Manuals, Service Bulletins
+POLICY (Level 5):             Company Policies, Training Materials
+HISTORICAL (Level 6):         Archived Documents, References
+```
 
 ## Säkerhet och Compliance
 
@@ -142,22 +180,43 @@ Permissions: user_id, document_id, permission_level
 - **Rollbaserade behörigheter**: Admin, User, Viewer roller
 - **Organisationsisolering**: Data isoleras per organisation
 
-### Dataskydd
-- **Kryptering**: TLS för transit, encryption-at-rest
-- **GDPR Compliance**: Användarhantering och dataämnesrättigheter
-- **Backup**: Regelbundna säkerhetskopior mot dataförlust
+### Aviation Security & Compliance
+- **TLS 1.3**: End-to-end encryption för all verkar kommunikation
+- **Encryption at Rest**: AES-256 för databas och fil-lagring
+- **Aviation Regulations**: EASA/FAA/Icao compliance frameworks
+- **Audit Logging**: Comprehensive chain of custody för tutte ändringar
+- **Data Retention**: 7+ år för aviation data per regulatory requirements
+- **Backup Strategy**: Daily encrypted backups med point-in-time recovery
+- **Disaster Recovery**: RTO: 4 hours, RPO: 1 hour för critical operations
 
-## Monitoring och Observability
+### Security Hardening
+- **Rate Limiting**: Protection mot brute force och abuse
+- **Input Validation**: Comprehensive sanitization för all user input
+- **Security Headers**: Complete CSP, HSTS, och X-*. protection
+- **Dependency Scanning**: Automated vulnerability detection
+- **Penetration Testing**: Regular security assessments
 
-### Health Checks
-- **API Health**: `/api/health` endpoint med verksamhetsinformation
-- **Database Metrics**: Anslutningsstatus och prestanda
-- **Cache Status**: Redis tillgänglighet och användning
+## Aviation Monitoring & Compliance
 
-### Logging
-- **Strukturerad loggning**: JSON-format för parsing
-- **Correlation IDs**: Spårbarhet genom systemet
-- **Nivåhantering**: Debug, Info, Warn, Error
+### Service Level Objectives (SLO)
+| Service | Availability | Response Time | Error Rate |
+|---------|-------------|---------------|------------|
+| API Gateway | 99.95% | P99 < 2s | < 0.1% |
+| Authentication | 99.99% | P99 < 1s | < 0.05% |
+| EFB Sync | 99.5% | P99 < 15s | < 2% |
+| Document Storage | 99.99% | P99 < 500ms | < 0.01% |
+
+### Aviation-Specific Alerts
+- **Flight Operations Critical**: EFB sync failures, critical document outages
+- **Regulatory Compliance**: Audit log corruption, data integrity breaches
+- **Performance Degradation**: API slowdown affecting flight operations
+- **Security Incidents**: Unauthorized access, data exfiltration attempts
+
+### Observability Stack
+- **OpenTelemetry**: Distributed tracing across services
+- **Custom Metrics**: Aviation KPIs (document currency, sync success rates)
+- **Structured Logging**: JSON logs with aviation context (flight number, aircraft registration)
+- **Business Intelligence**: Flight operations dashboards and compliance reporting
 
 ## Deployment och DevOps
 
