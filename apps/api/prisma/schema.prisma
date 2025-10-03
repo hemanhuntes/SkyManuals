@@ -60,6 +60,9 @@ model User {
   requestedRoleChanges RoleChangeRequest[] @relation("RoleChangeRequestRequester")
   reviewedRoleChanges RoleChangeRequest[] @relation("RoleChangeRequestReviewer")
   
+  // Epic-09 Relations
+  addonReviews AddonReview[] @relation("AddonReviewUser")
+  
   @@map("users")
 }
 
@@ -109,6 +112,12 @@ model Organization {
   permissionMatrices PermissionMatrix[]
   roleChangeRequests RoleChangeRequest[] @relation("RoleChangeRequestOrganization")
   oidcClients OIDCClient[] @relation("OIDCClientOrganization")
+  
+  // Epic-09 Relations
+  addonLicenses License[]
+  addonInstallations Installation[]
+  addonReviews AddonReview[] @relation("AddonReviewOrganization")
+  addonAnalytics AddonAnalytics[] @relation("AddonAnalyticsOrganization")
   
   @@map("organizations")
 }
@@ -2124,4 +2133,370 @@ enum Role {
   EDITOR
   REVIEWER
   READER
+}
+
+// Epic-09: ADD-ON STORE
+
+model Addon {
+  id               String @id @default(cuid())
+  name             String @unique
+  slug             String @unique
+  description      String
+  longDescription  String? @db.Text
+  version          String
+  author           String
+  authorEmail      String
+  authorWebsite    String?
+  
+  // Classification
+  type             AddonType
+  status           AddonStatus @default(DRAFT)
+  
+  // Content
+  iconUrl          String?
+  screenshots      String[] // Array of URLs
+  documentation    String? @db.Text
+  readme           String? @db.Text
+  
+  // Technical
+  minVersion       String?
+  maxVersion       String?
+  dependencies     String[] // Array of addon IDs
+  permissions      String[] // Required permissions
+  hooks            HookType[] // Supported hooks
+  
+  // Analytics
+  downloadCount    Int @default(0)
+  rating           Float?
+  reviewCount      Int @default(0)
+  
+  // Metadata
+  tags             String[]
+  categories       String[]
+  
+  // Timestamps
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  publishedAt      DateTime?
+  
+  // Relations
+  installations    Installation[]
+  licenses         License[]
+  reviews          AddonReview[]
+  pricingTiers     AddonPricingTier[]
+  analytics        AddonAnalytics[]
+  
+  @@map("addons")
+  @@index([type])
+  @@index([status])
+  @@index([rating])
+  @@index([downloadCount])
+}
+
+model AddonPricingTier {
+  id           String @id @default(cuid())
+  addonId      String
+  tier         LicenseTier
+  price        Float
+  currency     String @default("USD")
+  billingPeriod BillingPeriod @default(MONTHLY)
+  features     String[] // Array of feature descriptions
+  trialDays    Int? // Optional trial period
+  
+  // Relations
+  addon        Addon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+  
+  @@unique([addonId, tier])
+  @@map("addon_pricing_tiers")
+  @@index([tier])
+}
+
+model License {
+  id               String @id @default(cuid())
+  addonId          String
+  organizationId   String
+  tier             LicenseTier
+  
+  // Seating
+  seatsPurchased   Int
+  seatsUsed        Int @default(0)
+  maxConcurrentUsers Int?
+  
+  // Validity
+  startDate        DateTime
+  endDate          DateTime? // null for perpetual licenses
+  isActive         Boolean @default(true)
+  autoRenew         Boolean @default(false)
+  
+  // Trial Management
+  isTrial          Boolean @default(false)
+  trialEndsAt      DateTime?
+  trialConverted   Boolean @default(false)
+  
+  // Pricing
+  price            Float
+  currency         String @default("USD")
+  billingPeriod    BillingPeriod
+  nextBillingDate  DateTime?
+  
+  // Metadata
+  purchaseNotes    String?
+  renewalNotes     String?
+  licenseKey       String? @db.Text // Encrypted
+  createdBy        String // User ID
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  addon            Addon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  installation     Installation? @relation(fields: [id], references: [licenseId], map: "license_installation")
+  
+  @@unique([addonId, organizationId])
+  @@map("licenses")
+  @@index([organizationId])
+  @@index([isTrial])
+  @@index([isActive])
+  @@index([endDate])
+}
+
+model Installation {
+  id               String @id @default(cuid())
+  addonId          String
+  organizationId   String
+  licenseId        String? @unique
+  
+  // Configuration
+  status           InstallStatus @default(INSTALLED)
+  settings         Json @default("{}")
+  enabledHooks     HookType[] @default([])
+  webhookUrl       String?
+  
+  // Usage Tracking
+  apiCallsThisMonth Int @default(0)
+  webhookCallsThisMonth Int @default(0)
+  activeUsers      Int @default(0)
+  
+  // Deployment
+  installedVersion String
+  installedAt      DateTime @default(now())
+  lastUpdatedAt    DateTime?
+  updatedBy        String?
+  
+  // Error Handling
+  errorCount       Int @default(0)
+  lastError        String?
+  lastErrorAt      DateTime?
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  addon            Addon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  hookExecutions   HookExecution[]
+  
+  @@unique([addonId, organizationId])
+  @@map("installations")
+  @@index([organizationId])
+  @@index([status])
+  @@index([installedAt])
+}
+
+model HookExecution {
+  id               String @id @default(cuid())
+  installationId   String
+  hookType         HookType
+  webhookUrl       String
+  
+  // Event Data
+  event            Json // HookEvent data
+  correlationId    String?
+  
+  // Execution Status
+  status           HookExecutionStatus @default(PENDING)
+  requestDuration  Int? // Milliseconds
+  
+  // Response Data
+  responseStatus   Int?
+  responseBody     String? @db.Text
+  error            String? @db.Text
+  
+  // Retry Management
+  retryCount       Int @default(0)
+  maxRetries       Int @default(3)
+  
+  // Timestamps
+  executedAt       DateTime @default(now())
+  nextRetryAt      DateTime?
+  
+  // Relations
+  installation     Installation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  attempts         HookExecutionAttempt[]
+  
+  @@map("hook_executions")
+  @@index([installationId])
+  @@index([hookType])
+  @@index([status])
+  @@index([executedAt])
+}
+
+model HookExecutionAttempt {
+  id               String @id @default(cuid())
+  hookExecutionId  String
+  
+  // Attempt Details
+  sequence         Int // 1, 2, 3, etc.
+  timestamp        DateTime @default(now())
+  status           HookAttemptStatus
+  duration         Int? // Milliseconds
+  
+  // Response Details
+  responseStatus   Int?
+  responseBody     String? @db.Text
+  error            String? @db.Text
+  
+  // Relations
+  hookExecution    HookExecution @relation(fields: [hookExecutionId], references: [id], onDelete: Cascade)
+  
+  @@unique([hookExecutionId, sequence])
+  @@map("hook_execution_attempts")
+  @@index([hookExecutionId])
+}
+
+model AddonReview {
+  id               String @id @default(cuid())
+  addonId          String
+  organizationId   String
+  userId           String
+  
+  // Review Content
+  rating           Int // 1-5
+  title            String
+  content          String @db.Text
+  pros             String[] @default([])
+  cons             String[] @default([])
+  
+  // Review Metadata
+  isVerified       Boolean @default(false)
+  isPublished      Boolean @default(true)
+  helpful          Int @default(0) // Number of "helpful" votes
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  addon            Addon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+  organization     Organization @relation("AddonReviewOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User @relation("AddonReviewUser", fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([addonId, organizationId, userId])
+  @@map("addon_reviews")
+  @@index([addonId])
+  @@index([rating])
+}
+
+model AddonAnalytics {
+  id               String @id @default(cuid())
+  addonId          String
+  organizationId   String
+  period           AnalyticsPeriod
+  startDate        DateTime
+  endDate          DateTime
+  
+  // Metrics
+  installations    Int @default(0)
+  activeUsers      Int @default(0)
+  apiCalls         Int @default(0)
+  webhookCalls     Int @default(0)
+  errors           Int @default(0)
+  averageResponseTime Int @default(0) // Milliseconds
+  revenue            Float?
+  
+  // Aggregated Data
+  aggregates       Json? // Additional aggregated metrics
+  
+  createdAt        DateTime @default(now())
+  
+  // Relations
+  addon            Addon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+  organization     Organization @relation("AddonAnalyticsOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@unique([addonId, organizationId, period, startDate])
+  @@map("addon_analytics")
+  @@index([period])
+  @@index([startDate])
+}
+
+// Epic-09 Enums
+
+enum AddonType {
+  TEMPLATE_PACK
+  COMPLIANCE_CONNECTOR
+  WORKFLOW_EXTENSION
+  DATA_CONNECTOR
+  VISUALIZATION_TOOL
+  CUSTOM_WIDGET
+}
+
+enum AddonStatus {
+  DRAFT
+  PUBLISHED
+  DISCONTINUED
+  ARCHIVED
+}
+
+enum LicenseTier {
+  FREE
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum InstallStatus {
+  INSTALLED
+  ACTIVE
+  INACTIVE
+  UNINSTALLED
+  ERROR
+}
+
+enum HookType {
+  ON_PUBLISH
+  ON_INGEST
+  ON_ASK
+  ON_LOGIN
+  ON_MANUAL_CREATE
+  ON_WORKFLOW_COMPLETE
+  ON_DATA_EXPORT
+  ON_USER_REGISTER
+}
+
+enum HookExecutionStatus {
+  PENDING
+  SENT
+  SUCCESS
+  FAILED
+  TIMEOUT
+}
+
+enum HookAttemptStatus {
+  SENT
+  SUCCESS
+  FAILED
+  TIMEOUT
+}
+
+enum BillingPeriod {
+  MONTHLY
+  YEARLY
+  ONE_TIME
+}
+
+enum AnalyticsPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
 }

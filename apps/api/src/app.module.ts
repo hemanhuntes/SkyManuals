@@ -47,6 +47,11 @@ import { AuthController, OIDCService } from './auth/auth.controller';
 import { AuthGuard, SecurityGuard } from './auth/auth.guard';
 import { AuditService } from './audit/audit.service';
 
+// Epic-09 Components
+import { AddonController } from './addons/addon.controller';
+import { AddonService } from './addons/addon.service';
+import { HookExecutionService } from './addons/hook-execution.service';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -65,6 +70,7 @@ import { AuditService } from './audit/audit.service';
     XmlController,
     EFBController,
     AuthController,
+    AddonController,
   ],
   providers: [
     PrismaService,
@@ -91,6 +97,8 @@ import { AuditService } from './audit/audit.service';
     OfflineCacheService,
     OIDCService,
     AuditService,
+    AddonService,
+    HookExecutionService,
   ],
 })
 export class AppModule {}

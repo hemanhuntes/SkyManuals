@@ -2359,3 +2359,386 @@ export const AuditIntegrityResultSchema = z.object({
 });
 
 export type AuditIntegrityResult = z.infer<typeof AuditIntegrityResultSchema>;
+
+// ===============================================
+// EPIC-09: ADD-ON STORE
+// ===============================================
+
+// Add-on System Types
+export const AddonTypeSchema = z.enum([
+  'TEMPLATE_PACK',
+  'COMPLIANCE_CONNECTOR',
+  'WORKFLOW_EXTENSION',
+  'DATA_CONNECTOR',
+  'VISUALIZATION_TOOL',
+  'CUSTOM_WIDGET',
+]);
+
+export type AddonType = z.infer<typeof AddonTypeSchema>;
+
+export const AddonStatusSchema = z.enum(['DRAFT', 'PUBLISHED', 'DISCONTINUED', 'ARCHIVED']);
+export type AddonStatus = z.infer<typeof AddonStatusSchema>;
+
+export const LicenseTierSchema = z.enum(['FREE', 'BASIC', 'PROFESSIONAL', 'ENTERPRISE']);
+export type LicenseTier = z.infer<typeof LicenseTierSchema>;
+
+export const InstallStatusSchema = z.enum(['INSTALLED', 'ACTIVE', 'INACTIVE', 'UNINSTALLED', 'ERROR']);
+export type InstallStatus = z.infer<typeof InstallStatusSchema>;
+
+export const HookTypeSchema = z.enum([
+  'ON_PUBLISH',
+  'ON_INGEST',
+  'ON_ASK',
+  'ON_LOGIN',
+  'ON_MANUAL_CREATE',
+  'ON_WORKFLOW_COMPLETE',
+  'ON_DATA_EXPORT',
+  'ON_USER_REGISTER',
+]);
+
+export type HookType = z.infer<typeof HookTypeSchema>;
+
+export const HookEventSchema = z.object({
+  hookType: HookTypeSchema,
+  timestamp: z.string(),
+  organizationId: z.string(),
+  userId: z.string().optional(),
+  resourceId: z.string().optional(),
+  resourceType: z.enum(['Manual', 'Chapter', 'Section', 'User', 'Workflow', 'Data']).optional(),
+  payload: z.record(z.unknown()),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export type HookEvent = z.infer<typeof HookEventSchema>;
+
+export const HookExecutionSchema = z.object({
+  id: z.string(),
+  installationId: z.string(),
+  hookType: HookTypeSchema,
+  webhookUrl: z.string().url(),
+  event: HookEventSchema,
+  status: z.enum(['PENDING', 'SENT', 'SUCCESS', 'FAILED', 'TIMEOUT']),
+  requestDuration: z.number().optional(),
+  responseStatus: z.number().optional(),
+  responseBody: z.string().optional(),
+  error: z.string().optional(),
+  retryCount: z.number().default(0),
+  executedAt: z.string(),
+  attempts: z.array(z.object({
+    timestamp: z.string(),
+    status: z.enum(['SENT', 'SUCCESS', 'FAILED', 'TIMEOUT']),
+    duration: z.number(),
+    responseStatus: z.number().optional(),
+    error: z.string().optional(),
+  })),
+});
+
+export type HookExecution = z.infer<typeof HookExecutionSchema>;
+
+// Add-on Definitions
+export const AddonSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  description: z.string(),
+  longDescription: z.string().optional(),
+  version: z.string(),
+  author: z.string(),
+  authorEmail: z.string().email(),
+  authorWebsite: z.string().url().optional(),
+  
+  // Classification
+  type: AddonTypeSchema,
+  status: AddonStatusSchema,
+  
+  // Content
+  iconUrl: z.string().url().optional(),
+  screenshots: z.array(z.string().url()).optional(),
+  documentation: z.string().optional(),
+  readme: z.string().optional(),
+  
+  // Technical
+  minVersion: z.string().optional(),
+  maxVersion: z.string().optional(),
+  dependencies: z.array(z.string()).optional(),
+  permissions: z.array(z.string()).optional(),
+  hooks: z.array(HookTypeSchema).optional(),
+  
+  // Pricing & Licensing
+  pricingTiers: z.array(z.object({
+    tier: LicenseTierSchema,
+    price: z.number(),
+    currency: z.string().default('USD'),
+    billingPeriod: z.enum(['MONTHLY', 'YEARLY', 'ONE_TIME']).default('MONTHLY'),
+    features: z.array(z.string()),
+    trialDays: z.number().optional(),
+  })),
+  
+  // Analytics
+  downloadCount: z.number().default(0),
+  rating: z.number().min(0).max(5).optional(),
+  reviewCount: z.number().default(0),
+  
+  // Metadata
+  tags: z.array(z.string()).optional(),
+  categories: z.array(z.string()).optional(),
+  
+  // Timestamps
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  publishedAt: z.string().optional(),
+});
+
+export type Addon = z.infer<typeof AddonSchema>;
+
+// License Management
+export const LicenseSchema = z.object({
+  id: z.string(),
+  addonId: z.string(),
+  organizationId: z.string(),
+  tier: LicenseTierSchema,
+  
+  // Seating
+  seatsPurchased: z.number(),
+  seatsUsed: z.number().default(0),
+  maxConcurrentUsers: z.number().optional(),
+  
+  // Validity
+  startDate: z.string(),
+  endDate: z.string().optional(), // null for perpetual licenses
+  isActive: z.boolean().default(true),
+  autoRenew: z.boolean().default(false),
+  
+  // Trial Management
+  isTrial: z.boolean().default(false),
+  trialEndsAt: z.string().optional(),
+  trialConverted: z.boolean().default(false),
+  
+  // Pricing
+  price: z.number(),
+  currency: z.string().default('USD'),
+  billingPeriod: z.enum(['MONTHLY', 'YEARLY', 'ONE_TIME']),
+  nextBillingDate: z.string().optional(),
+  
+  // Metadata
+  purchaseNotes: z.string().optional(),
+  renewalNotes: z.string().optional(),
+  licenseKey: z.string().optional(), // Encrypted
+  createdBy: z.string(), // User ID
+  
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type License = z.infer<typeof LicenseSchema>;
+
+// Installation Management
+export const InstallationSchema = z.object({
+  id: z.string(),
+  addonId: z.string(),
+  organizationId: z.string(),
+  licenseId: z.string().optional(),
+  
+  // Configuration
+  status: InstallStatusSchema,
+  settings: z.record(z.unknown()).default({}),
+  enabledHooks: z.array(HookTypeSchema).default([]),
+  webhookUrl: z.string().url().optional(),
+  
+  // Usage Tracking
+  apiCallsThisMonth: z.number().default(0),
+  webhookCallsThisMonth: z.number().default(0),
+  activeUsers: z.number().default(0),
+  
+  // Deployment
+  installedVersion: z.string(),
+  installedAt: z.string(),
+  lastUpdatedAt: z.string().optional(),
+  updatedBy: z.string().optional(),
+  
+  // Error Handling
+  errorCount: z.number().default(0),
+  lastError: z.string().optional(),
+  lastErrorAt: z.string().optional(),
+  
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type Installation = z.infer<typeof InstallationSchema>;
+
+// License Management Request Types
+export const LicenseCreateRequestSchema = z.object({
+  addonId: z.string(),
+  organizationId: z.string(),
+  tier: LicenseTierSchema,
+  seatsPurchased: z.number(),
+  billingPeriod: z.enum(['MONTHLY', 'YEARLY', 'ONE_TIME']),
+  autoRenew: z.boolean().default(false),
+  trialDays: z.number().optional(),
+  purchaseNotes: z.string().optional(),
+  createdBy: z.string(),
+});
+
+export type LicenseCreateRequest = z.infer<typeof LicenseCreateRequestSchema>;
+
+export const LicenseUpdateRequestSchema = z.object({
+  tier: LicenseTierSchema.optional(),
+  seatsPurchased: z.number().optional(),
+  isActive: z.boolean().optional(),
+  autoRenew: z.boolean().optional(),
+  endDate: z.string().optional(),
+  renewalNotes: z.string().optional(),
+});
+
+export type LicenseUpdateRequest = z.infer<typeof LicenseUpdateRequestSchema>;
+
+// Installation Management Request Types
+export const InstallationRequestSchema = z.object({
+  addonId: z.string(),
+  organizationId: z.string(),
+  licenseId: z.string().optional(),
+  settings: z.record(z.unknown()).default({}),
+  webhookUrl: z.string().url().optional(),
+});
+
+export type InstallationRequest = z.infer<typeof InstallationRequestSchema>;
+
+export const InstallationUpdateRequestSchema = z.object({
+  status: InstallStatusSchema.optional(),
+  settings: z.record(z.unknown()).optional(),
+  enabledHooks: z.array(HookTypeSchema).optional(),
+  webhookUrl: z.string().url().optional(),
+});
+
+export type InstallationUpdateRequest = z.infer<typeof InstallationUpdateRequestSchema>;
+
+// Add-on Store API Types
+export const AddonSearchRequestSchema = z.object({
+  query: z.string().optional(),
+  type: AddonTypeSchema.optional(),
+  tier: LicenseTierSchema.optional(),
+  tags: z.array(z.string()).optional(),
+  categories: z.array(z.string()).optional(),
+  sortBy: z.enum(['name', 'downloads', 'rating', 'created', 'updated']).default('name'),
+  sortOrder: z.enum(['asc', 'desc']).default('asc'),
+  page: z.number().default(1),
+  pageSize: z.number().default(20),
+});
+
+export type AddonSearchRequest = z.infer<typeof AddonSearchRequestSchema>;
+
+export const AddonSearchResponseSchema = z.object({
+  addons: z.array(AddonSchema),
+  pagination: z.object({
+    page: z.number(),
+    pageSize: z.number(),
+    totalCount: z.number(),
+    totalPages: z.number(),
+  }),
+  filters: z.object({
+    types: z.array(AddonTypeSchema),
+    tiers: z.array(LicenseTierSchema),
+    tags: z.array(z.string()),
+    categories: z.array(z.string()),
+  }),
+});
+
+export type AddonSearchResponse = z.infer<typeof AddonSearchResponseSchema>;
+
+// Webhook Configuration
+export const WebhookConfigSchema = z.object({
+  url: z.string().url(),
+  secret: z.string().optional(),
+  signatureHeader: z.string().default('X-SkyManuals-Signature'),
+  retryAttempts: z.number().default(3),
+  timeout: z.number().default(30000), // 30 seconds
+  verifySsl: z.boolean().default(true),
+  customHeaders: z.record(z.string()).optional(),
+});
+
+export type WebhookConfig = z.object({
+  url: string;
+  secret?: string;
+  signatureHeader?: string;
+  retryAttempts?: number;
+  timeout?: number;
+  verifySsl?: boolean;
+  customHeaders?: Record<string, string>;
+};
+
+// Hook Execution Request
+export const HookExecutionRequestSchema = z.object({
+  installationId: z.string(),
+  hookType: HookTypeSchema,
+  payload: z.record(z.unknown()),
+  metadata: z.record(z.unknown()).optional(),
+  correlationId: z.string().optional(),
+});
+
+export type HookExecutionRequest = z.infer<typeof HookExecutionRequestSchema>;
+
+export const HookExecutionResponseSchema = z.object({
+  success: z.boolean(),
+  executionId: z.string(),
+  duration: z.number(),
+  status: z.enum(['SUCCESS', 'FAILED', 'TIMEOUT']),
+  error: z.string().optional(),
+  retryCount: z.number().default(0),
+  responseData: z.record(z.unknown()).optional(),
+});
+
+export type HookExecutionResponse = z.infer<typeof HookExecutionResponseSchema>;
+
+// Add-on Analytics
+export const AddonAnalyticsSchema = z.object({
+  addonId: z.string(),
+  organizationId: z.string(),
+  period: z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']),
+  startDate: z.string(),
+  endDate: z.string(),
+  metrics: z.object({
+    installations: z.number(),
+    activeUsers: z.number(),
+    apiCalls: z.number(),
+    webhookCalls: z.number(),
+    errors: z.number(),
+    averageResponseTime: z.number(),
+    revenue: z.number().optional(),
+  }),
+  aggregates: z.record(z.unknown()).optional(),
+});
+
+export type AddonAnalytics = z.infer<typeof AddonAnalyticsSchema>;
+
+// Add-on Review System
+export const AddonReviewSchema = z.object({
+  id: z.string(),
+  addonId: z.string(),
+  organizationId: z.string(),
+  userId: z.string(),
+  rating: z.number().min(1).max(5),
+  title: z.string(),
+  content: z.string(),
+  pros: z.array(z.string()).optional(),
+  cons: z.array(z.string()).optional(),
+  isVerified: z.boolean().default(false),
+  isPublished: z.boolean().default(true),
+  helpful: z.number().default(0), // Number of "helpful" votes
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type AddonReview = z.infer<typeof AddonReviewSchema>;
+
+export const AddonReviewCreateRequestSchema = z.object({
+  addonId: z.string(),
+  organizationId: z.string(),
+  rating: z.number().min(1).max(5),
+  title: z.string(),
+  content: z.string(),
+  pros: z.array(z.string()).optional(),
+  cons: z.array(z.string()).optional(),
+});
+
+export type AddonReviewCreateRequest = z.infer<typeof AddonReviewCreateRequestSchema>;
