@@ -41,6 +41,11 @@ model User {
   offlineCaches OfflineCache[]
   readerAnalytics ReaderAnalytics[]
   
+  // Epic-06 Relations
+  uploadedXmlDocuments XmlDocument[]
+  createdXmlDiffs XmlDiff[]
+  createdExportConfigurations XmlExportConfiguration[]
+  
   @@map("users")
 }
 
@@ -73,6 +78,10 @@ model Organization {
   
   // Epic-05 Relations
   searchIndexes SearchIndex[]
+  
+  // Epic-06 Relations
+  xmlDocuments XmlDocument[]
+  xmlExportConfigurations XmlExportConfiguration[]
   
   @@map("organizations")
 }
@@ -127,6 +136,9 @@ model Manual {
   // Epic-05 Relations
   searchIndexes SearchIndex[]
   
+  // Epic-06 Relations
+  xmlMappings XmlMapping[]
+  
   @@map("manuals")
 }
 
@@ -144,6 +156,9 @@ model Chapter {
   
   // Epic-05 Relations
   searchIndexes SearchIndex[]
+  
+  // Epic-06 Relations
+  xmlMappings XmlMapping[]
   
   @@unique([manualId, number])
   @@map("chapters")
@@ -166,6 +181,9 @@ model Section {
   // Epic-05 Relations
   searchIndexes SearchIndex[]
   
+  // Epic-06 Relations
+  xmlMappings XmlMapping[]
+  
   @@unique([chapterId, number])
   @@map("sections")
 }
@@ -185,6 +203,9 @@ model Block {
   
   // Epic-05 Relations
   searchIndexes SearchIndex[]
+  
+  // Epic-06 Relations
+  xmlMappings XmlMapping[]
   
   @@map("blocks")
 }
@@ -1379,4 +1400,157 @@ enum SearchOutcome {
   SATISFIED
   DISSAISFIED
   NO_CLICK
+}
+
+// Epic-06: XML Ingest and Authoring Models
+
+model XmlDocument {
+  id              String              @id @default(cuid())
+  fileName        String
+  originalXml     Text
+  parsedXml       Json                @default("{}")
+  xsdSchema       Text?
+  validationErrors Json               @default("[]")
+  status          XmlDocumentStatus   @default(PENDING)
+  organizationId  String
+  uploadedBy      String
+  uploadedAt      DateTime            @default(now())
+  processedAt     DateTime?
+
+  // Relations
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedUser    User               @relation(fields: [uploadedBy], references: [id])
+  
+  xmlMappings     XmlMapping[]
+  xmlExportConfigurations XmlExportConfiguration[]
+  xmlDiffs        XmlDiff[]          @relation("XmlDiffSource")
+  xmlDiffsTarget  XmlDiff[]          @relation("XmlDiffTarget")
+
+  @@map("xml_documents")
+  @@index([organizationId])
+  @@index([status])
+  @@index([uploadedAt])
+}
+
+model XmlMapping {
+  id                  String          @id @default(cuid())
+  xmlDocumentId       String
+  xmlElementPath      String          // e.g., "Manual.Chapter.Section.Block"
+  manualId            String?
+  chapterId           String?
+  sectionId           String?
+  blockId             String?
+  mappingType         XmlMappingType
+  fieldMappings       Json            @default("{}")
+  transformationRules Json            @default("[]")
+  isValidated         Boolean         @default(false)
+  lastSyncedAt        DateTime?
+  syncStatus          XmlSyncStatus   @default(IN_SYNC)
+
+  // Relations
+  xmlDocument         XmlDocument     @relation(fields: [xmlDocumentId], references: [id], onDelete: Cascade)
+  manual              Manual?         @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  chapter             Chapter?        @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  section             Section?        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  block               Block?          @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  @@map("xml_mappings")
+  @@index([xmlDocumentId])
+  @@index([manualId])
+  @@index([syncStatus])
+}
+
+model XmlExportConfiguration {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?
+  organizationId String
+  templateXml   Text
+  xsdSchema     Text
+  fieldMappings Json     @default("{}")
+  exportRules   Json     @default("[]")
+  createdAt     DateTime @default(now())
+  createdBy     String
+  isActive      Boolean  @default(true)
+
+  // Relations
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdUser   User         @relation(fields: [createdBy], references: [id])
+  
+  xmlDocument   XmlDocument? @relation(fields: [id], references: [id])
+
+  @@unique(fields: ["organizationId", "name"])
+  @@map("xml_export_configurations")
+}
+
+model XmlDiff {
+  id                      String       @id @default(cuid())
+  sourceXmlDocumentId     String
+  targetXmlDocumentId     String
+  diffType                XmlDiffType
+  differences             Json         @default("[]")
+  summary                 Json         @default("{}")
+  createdAt               DateTime     @default(now())
+  createdBy               String
+
+  // Relations
+  sourceXmlDocument       XmlDocument  @relation("XmlDiffSource", fields: [sourceXmlDocumentId], references: [id])
+  targetXmlDocument       XmlDocument  @relation("XmlDiffTarget", fields: [targetXmlDocumentId], references: [id])
+  createdUser             User         @relation(fields: [createdBy], references: [id])
+
+  @@map("xml_diffs")
+  @@index([diffType])
+  @@index([createdAt])
+}
+
+model XmlProcessingJob {
+  id          String   @id @default(cuid())
+  type        XmlJobType
+  status      JobStatus
+  progress    Json     @default("{}")
+  startedAt   DateTime?
+  completedAt DateTime?
+  errorMessage Text?
+
+  @@map("xml_processing_jobs")
+  @@index([type])
+  @@index([status])
+}
+
+// Enums for Epic-06
+
+enum XmlDocumentStatus {
+  PENDING
+  VALIDATION_SUCCESS
+  VALIDATION_FAILED
+  MAPPED
+  FAILED
+}
+
+enum XmlMappingType {
+  MANUAL
+  CHAPTER
+  SECTION
+  BLOCK
+  METADATA
+}
+
+enum XmlSyncStatus {
+  IN_SYNC
+  MANUAL_MODIFIED
+  XML_MODIFIED
+  CONFLICTED
+}
+
+enum XmlDiffType {
+  IMPORT_EXPORT
+  VERSION_COMPARISON
+  MANUAL_XML_SYNC
+}
+
+enum XmlJobType {
+  IMPORT
+  EXPORT
+  DIFF_GENERATION
+  VALIDATION
 }

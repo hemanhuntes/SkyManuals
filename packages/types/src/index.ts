@@ -1009,6 +1009,145 @@ export const SearchAnalyticsSchema = z.object({
 
 export type SearchAnalytics = z.infer<typeof SearchAnalyticsSchema>;
 
+// Epic-06: XML Ingest and Authoring Types
+
+export const XmlDocumentSchema = z.object({
+  id: z.string(),
+  fileName: z.string(),
+  originalXml: z.string(),
+  parsedXml: z.record(z.any()),
+  xsdSchema: z.string().optional(),
+  validationErrors: z.array(z.object({
+    line: z.number(),
+    column: z.number(),
+    message: z.string(),
+    severity: z.enum(['ERROR', 'WARNING', 'INFO']),
+    code: z.string().optional(),
+  })),
+  status: z.enum(['PENDING', 'VALIDATION_SUCCESS', 'VALIDATION_FAILED', 'MAPPED', 'FAILED']),
+  organizationId: z.string(),
+  uploadedBy: z.string(),
+  uploadedAt: z.string(),
+  processedAt: z.string().optional(),
+});
+
+export type XmlDocument = z.infer<typeof XmlDocumentSchema>;
+
+export const XmlMappingSchema = z.object({
+  id: z.string(),
+  xmlDocumentId: z.string(),
+  xmlElementPath: z.string(), // e.g., "Manual.Chapter.Section.Block"
+  manualId: z.string().optional(),
+  chapterId: z.string().optional(),
+  sectionId: z.string().optional(),
+  blockId: z.string().optional(),
+  mappingType: z.enum(['MANUAL', 'CHAPTER', 'SECTION', 'BLOCK', 'METADATA']),
+  fieldMappings: z.record(z.string()), // XML field -> Block field
+  transformationRules: z.array(z.object({
+    sourcePath: z.string(),
+    targetPath: z.string(),
+    transformFunction: z.enum(['DIRECT_COPY', 'TEXT_EXTRACT', 'HTML_CONVERT', 'STRUCTURED_PARSE']),
+    parameters: z.record(z.any()).optional(),
+  })),
+  isValidated: z.boolean(),
+  lastSyncedAt: z.string().optional(),
+  syncStatus: z.enum(['IN_SYNC', 'MANUAL_MODIFIED', 'XML_MODIFIED', 'CONFLICTED']),
+});
+
+export type XmlMapping = z.infer<typeof XmlMappingSchema>;
+
+export const XmlExportConfigurationSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  organizationId: z.string(),
+  templateXml: z.string(),
+  xsdSchema: z.string(),
+  fieldMappings: z.record(z.string()),
+  exportRules: z.array(z.object({
+    manualElement: z.string(),
+    xmlPath: z.string(),
+    required: z.boolean(),
+    transformFunction: z.enum(['DIRECT_COPY', 'HTML_TO_XML', 'STRUCTURED_FORMAT', 'METADATA_EXTRACT']),
+    parameters: z.record(z.any()).optional(),
+  })),
+  createdAt: z.string(),
+  createdBy: z.string(),
+  isActive: z.boolean(),
+});
+
+export type XmlExportConfiguration = z.infer<typeof XmlExportConfigurationSchema>;
+
+export const XmlDiffSchema = z.object({
+  id: z.string(),
+  sourceXmlDocumentId: z.string(),
+  targetXmlDocumentId: z.string(),
+  diffType: z.enum(['IMPORT_EXPORT', 'VERSION_COMPARISON', 'MANUAL_XML_SYNC']),
+  differences: z.array(z.object({
+    type: z.enum(['ADDED', 'REMOVED', 'MODIFIED', 'MOVED']),
+    path: z.string(),
+    oldValue: z.any().optional(),
+    newValue: z.any().optional(),
+    description: z.string(),
+    severity: z.enum(['TRIVIAL', 'MINOR', 'MAJOR', 'CRITICAL']),
+    autoResolvable: z.boolean(),
+    resolution: z.string().optional(),
+  })),
+  summary: z.object({
+    totalChanges: z.number(),
+    additions: z.number(),
+    deletions: z.number(),
+    modifications: z.number(),
+    criticalChanges: z.number(),
+  }),
+  createdAt: z.string(),
+  createdBy: z.string(),
+});
+
+export type XmlDiff = z.infer<typeof XmlDiffSchema>;
+
+export const XmlImportRequestSchema = z.object({
+  fileName: z.string(),
+  xmlContent: z.string(),
+  xsdSchemaContent: z.string().optional(),
+  mappingConfigurationId: z.string().optional(),
+  organizationId: z.string(),
+  importOptions: z.object({
+    createNewManual: z.boolean().default(false),
+    overwriteExistingBlocks: z.boolean().default(false),
+    validateAgainstXsd: z.boolean().default(true),
+    generateDefaultMappings: z.boolean().default(true),
+  }),
+});
+
+export type XmlImportRequest = z.infer<typeof XmlImportRequestSchema>;
+
+export const XmlExportRequestSchema = z.object({
+  manualId: z.string(),
+  exportConfigurationId: z.string(),
+  exportOptions: z.object({
+    includeMetadata: z.boolean().default(true),
+    validateAgainstXsd: z.boolean().default(true),
+    preserveComments: z.boolean().default(true),
+    exportFormat: z.enum(['STANDARD_XML', 'PRETTY_PRINT', 'MINIFIED']),
+  }),
+});
+
+export type XmlExportRequest = z.infer<typeof XmlExportRequestSchema>;
+
+export const XmlProcessingJobSchema = z.object({
+  type: z.enum(['IMPORT', 'EXPORT', 'DIFF_GENERATION', 'VALIDATION']),
+  status: z.enum(['PENDING', 'RUNNING', 'COMPLETED', 'FAILED']),
+  progress: z.object({
+    currentStep: z.string(),
+    totalSteps: z.number(),
+    completedSteps: z.number(),
+    errors: z.array(z.string()),
+  }),
+});
+
+export type XmlProcessingJob = z.infer<typeof XmlProcessingJobSchema>;
+
 // Epic-04: Compliance Monitoring Types
 
 // Regulation Library Types
