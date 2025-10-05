@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkyManuals - Manual Viewer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            padding: 30px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            color: #7f8c8d;
+            font-size: 1.1rem;
+        }
+
+        .search-section {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+
+        .search-bar {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .search-input {
+            flex: 1;
+            padding: 15px 20px;
+            border: 2px solid #ecf0f1;
+            border-radius: 25px;
+            font-size: 1.1rem;
+            transition: border-color 0.3s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        .search-button {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 25px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-width: 120px;
+        }
+
+        .search-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(52, 152, 219, 0.3);
+        }
+
+        .search-button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .search-results {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .search-result {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .search-result h4 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .search-result p {
+            color: #7f8c8d;
+            margin-bottom: 10px;
+        }
+
+        .relevance-score {
+            background: #3498db;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.9rem;
+            display: inline-block;
+        }
+
+        .manuals-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .manual-card {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            overflow: hidden;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .manual-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+        }
+
+        .manual-header {
+            background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+            color: white;
+            padding: 25px;
+            text-align: center;
+        }
+
+        .manual-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+        }
+
+        .manual-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .manual-version {
+            opacity: 0.9;
+            font-size: 1rem;
+        }
+
+        .manual-body {
+            padding: 25px;
+        }
+
+        .manual-description {
+            color: #7f8c8d;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .manual-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-draft {
+            background: #f39c12;
+            color: white;
+        }
+
+        .status-released {
+            background: #27ae60;
+            color: white;
+        }
+
+        .status-in-progress {
+            background: #3498db;
+            color: white;
+        }
+
+        .manual-date {
+            color: #95a5a6;
+            font-size: 0.9rem;
+        }
+
+        .manual-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .action-button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            text-align: center;
+            display: inline-block;
+        }
+
+        .action-button.primary {
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+        }
+
+        .action-button.secondary {
+            background: #ecf0f1;
+            color: #2c3e50;
+        }
+
+        .action-button:hover {
+            transform: translateY(-2px);
+        }
+
+        .workflow-section {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+
+        .workflow-item {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-left: 4px solid #3498db;
+        }
+
+        .workflow-item.completed {
+            border-left-color: #27ae60;
+        }
+
+        .workflow-item.pending {
+            border-left-color: #f39c12;
+        }
+
+        .tasks-section {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+
+        .task-item {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-left: 4px solid #e74c3c;
+        }
+
+        .task-item.high {
+            border-left-color: #e74c3c;
+        }
+
+        .task-item.medium {
+            border-left-color: #f39c12;
+        }
+
+        .task-item.low {
+            border-left-color: #27ae60;
+        }
+
+        .priority-badge {
+            padding: 4px 8px;
+            border-radius: 10px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-left: 10px;
+        }
+
+        .priority-high {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .priority-medium {
+            background: #f39c12;
+            color: white;
+        }
+
+        .priority-low {
+            background: #27ae60;
+            color: white;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+        }
+
+        .spinner {
+            border: 4px solid #ecf0f1;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            background: #fadbd8;
+            color: #e74c3c;
+            padding: 20px;
+            border-radius: 15px;
+            margin: 20px 0;
+            border: 1px solid #e74c3c;
+        }
+
+        .success-message {
+            background: #d5f4e6;
+            color: #27ae60;
+            padding: 20px;
+            border-radius: 15px;
+            margin: 20px 0;
+            border: 1px solid #27ae60;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .search-bar {
+                flex-direction: column;
+            }
+            
+            .manuals-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .manual-actions {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>✈️ SkyManuals</h1>
+            <p>Aviation Manual Viewer & Search</p>
+            <button onclick="logout()" style="background: #e74c3c; color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; margin-top: 10px;">
+                Logout
+            </button>
+        </div>
+
+        <div class="search-section">
+            <div class="search-bar">
+                <input type="text" id="searchInput" class="search-input" placeholder="Search manuals, procedures, regulations...">
+                <button id="searchButton" class="search-button">🔍 Search</button>
+            </div>
+            <div id="searchResults" class="search-results"></div>
+        </div>
+
+        <div id="manualsSection">
+            <div class="loading" id="loadingManuals">
+                <div class="spinner"></div>
+                <p>Loading manuals...</p>
+            </div>
+            <div id="manualsGrid" class="manuals-grid" style="display: none;"></div>
+        </div>
+
+        <div id="workflowSection" class="workflow-section" style="display: none;">
+            <h2 style="margin-bottom: 20px; color: #2c3e50;">📋 Active Workflows</h2>
+            <div id="workflowsList"></div>
+        </div>
+
+        <div id="tasksSection" class="tasks-section" style="display: none;">
+            <h2 style="margin-bottom: 20px; color: #2c3e50;">✅ Pending Tasks</h2>
+            <div id="tasksList"></div>
+        </div>
+    </div>
+
+    <script>
+        const BFF_URL = 'http://localhost:3002';
+        
+        const searchInput = document.getElementById('searchInput');
+        const searchButton = document.getElementById('searchButton');
+        const searchResults = document.getElementById('searchResults');
+        const loadingManuals = document.getElementById('loadingManuals');
+        const manualsGrid = document.getElementById('manualsGrid');
+        const workflowSection = document.getElementById('workflowSection');
+        const workflowsList = document.getElementById('workflowsList');
+        const tasksSection = document.getElementById('tasksSection');
+        const tasksList = document.getElementById('tasksList');
+
+        let authToken = null;
+        let currentUser = null;
+
+        // Load data on page load
+        document.addEventListener('DOMContentLoaded', async () => {
+            await checkAuthentication();
+            if (authToken) {
+                await loadManuals();
+                await loadWorkflows();
+                await loadTasks();
+            }
+        });
+
+        function checkAuthentication() {
+            authToken = localStorage.getItem('skymanuals_token');
+            const userStr = localStorage.getItem('skymanuals_user');
+            
+            if (!authToken || !userStr) {
+                showStatus('❌ Please login first', 'error');
+                
+                // Redirect to login immediately
+                setTimeout(() => {
+                    window.location.href = 'http://localhost:3002/frontend/auth/login.html';
+                }, 2000);
+                return false;
+            }
+
+            try {
+                currentUser = JSON.parse(userStr);
+                showStatus(`✅ Welcome, ${currentUser.name}! (${currentUser.roles.join(', ')})`, 'success');
+                return true;
+            } catch (error) {
+                showStatus('❌ Invalid user data. Please login again.', 'error');
+                localStorage.removeItem('skymanuals_token');
+                localStorage.removeItem('skymanuals_user');
+                setTimeout(() => {
+                    window.location.href = 'http://localhost:3002/frontend/auth/login.html';
+                }, 2000);
+                return false;
+            }
+        }
+
+        // Search functionality
+        searchButton.addEventListener('click', performSearch);
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+
+        async function loadManuals() {
+            try {
+                console.log('🔍 Loading approved manuals with token:', authToken ? 'Present' : 'Missing');
+                console.log('🔍 Token value:', authToken);
+                
+                const response = await fetch(`${BFF_URL}/api/manuals`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                console.log('📡 Response status:', response.status);
+                
+                const data = await response.json();
+                console.log('📦 Response data:', data);
+                
+                if (response.ok) {
+                    // Filter to only show APPROVED manuals for viewers
+                    const approvedManuals = data.manuals.filter(manual => manual.status === 'APPROVED');
+                    console.log('✅ Approved manuals loaded:', approvedManuals.length, 'of', data.manuals.length, 'total');
+                    
+                    if (approvedManuals.length === 0) {
+                        showStatus('ℹ️ No approved manuals available yet. Please wait for review process.', 'info');
+                    }
+                    
+                    displayManuals(approvedManuals);
+                } else {
+                    console.error('❌ API Error:', data.error);
+                    showError('Failed to load manuals: ' + data.error);
+                    loadingManuals.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('❌ Network Error:', error);
+                showError('Error loading manuals: ' + error.message);
+                loadingManuals.style.display = 'none';
+            }
+        }
+
+        function displayManuals(manuals) {
+            loadingManuals.style.display = 'none';
+            manualsGrid.style.display = 'grid';
+            
+            if (manuals.length === 0) {
+                manualsGrid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: #7f8c8d; padding: 40px;">No manuals found</p>';
+                return;
+            }
+
+            manualsGrid.innerHTML = manuals.map(manual => `
+                <div class="manual-card" onclick="viewManual('${manual.id}')">
+                    <div class="manual-header">
+                        <div class="manual-icon">📄</div>
+                        <div class="manual-title">${escapeHtml(manual.title)}</div>
+                        <div class="manual-version">v${manual.version}</div>
+                    </div>
+                    <div class="manual-body">
+                        <div class="manual-description">
+                            ${escapeHtml(manual.description || 'No description available')}
+                        </div>
+                        <div class="manual-meta">
+                            <span class="status-badge status-${manual.status.toLowerCase().replace('_', '-')}">
+                                ${manual.status}
+                            </span>
+                            <span class="manual-date">
+                                ${formatDate(manual.updatedAt)}
+                            </span>
+                        </div>
+                        <div class="manual-actions">
+                            <a href="#" class="action-button primary" onclick="event.stopPropagation(); viewManual('${manual.id}')">
+                                👁️ View
+                            </a>
+                            <a href="#" class="action-button secondary" onclick="event.stopPropagation(); downloadManual('${manual.id}')">
+                                📥 Download
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function performSearch() {
+            const query = searchInput.value.trim();
+            if (!query) return;
+
+            searchButton.disabled = true;
+            searchButton.textContent = 'Searching...';
+
+            try {
+                const response = await fetch(`${BFF_URL}/api/search/ask`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        searchType: 'AI'
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displaySearchResults(data);
+                } else {
+                    showError('Search failed: ' + data.error);
+                }
+            } catch (error) {
+                showError('Search error: ' + error.message);
+            } finally {
+                searchButton.disabled = false;
+                searchButton.textContent = '🔍 Search';
+            }
+        }
+
+        function displaySearchResults(results) {
+            if (!results.results || results.results.length === 0) {
+                searchResults.innerHTML = '<p style="text-align: center; color: #7f8c8d; padding: 20px;">No results found</p>';
+                searchResults.style.display = 'block';
+                return;
+            }
+
+            searchResults.innerHTML = `
+                <h3 style="margin-bottom: 15px; color: #2c3e50;">
+                    Search Results (${results.totalResults} found)
+                </h3>
+                ${results.results.map(result => `
+                    <div class="search-result">
+                        <h4>${escapeHtml(result.title)}</h4>
+                        <p>${escapeHtml(result.content)}</p>
+                        <span class="relevance-score">Relevance: ${Math.round(result.relevanceScore * 100)}%</span>
+                    </div>
+                `).join('')}
+            `;
+            searchResults.style.display = 'block';
+        }
+
+        async function loadWorkflows() {
+            try {
+                const response = await fetch(`${BFF_URL}/api/workflows`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                const data = await response.json();
+                
+                if (response.ok && data.workflows.length > 0) {
+                    displayWorkflows(data.workflows);
+                    workflowSection.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error loading workflows:', error);
+            }
+        }
+
+        function displayWorkflows(workflows) {
+            workflowsList.innerHTML = workflows.map(workflow => `
+                <div class="workflow-item ${workflow.status.toLowerCase()}">
+                    <h4>Workflow ${workflow.id}</h4>
+                    <p><strong>Manual ID:</strong> ${workflow.manualId}</p>
+                    <p><strong>Status:</strong> ${workflow.status} | <strong>Stage:</strong> ${workflow.currentStage}</p>
+                    <p><strong>Updated:</strong> ${formatDate(workflow.updatedAt)}</p>
+                </div>
+            `).join('');
+        }
+
+        async function loadTasks() {
+            try {
+                const response = await fetch(`${BFF_URL}/api/tasks`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                const data = await response.json();
+                
+                if (response.ok && data.tasks.length > 0) {
+                    displayTasks(data.tasks);
+                    tasksSection.style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error loading tasks:', error);
+            }
+        }
+
+        function displayTasks(tasks) {
+            tasksList.innerHTML = tasks.map(task => `
+                <div class="task-item ${task.priority.toLowerCase()}">
+                    <h4>${escapeHtml(task.title)}
+                        <span class="priority-badge priority-${task.priority.toLowerCase()}">
+                            ${task.priority}
+                        </span>
+                    </h4>
+                    <p>${escapeHtml(task.description)}</p>
+                    <p><strong>Status:</strong> ${task.status} | <strong>Due:</strong> ${formatDate(task.dueDate)}</p>
+                </div>
+            `).join('');
+        }
+
+        function viewManual(manualId) {
+            // In a real application, this would open a detailed view
+            showSuccess(`Opening manual ${manualId}...`);
+        }
+
+        function downloadManual(manualId) {
+            // In a real application, this would trigger a download
+            showSuccess(`Downloading manual ${manualId}...`);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('sv-SE') + ' ' + date.toLocaleTimeString('sv-SE', {hour: '2-digit', minute: '2-digit'});
+        }
+
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.textContent = message;
+            document.querySelector('.container').insertBefore(errorDiv, document.querySelector('.search-section').nextSibling);
+            
+            setTimeout(() => errorDiv.remove(), 5000);
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.createElement('div');
+            successDiv.className = 'success-message';
+            successDiv.textContent = message;
+            document.querySelector('.container').insertBefore(successDiv, document.querySelector('.search-section').nextSibling);
+            
+            setTimeout(() => successDiv.remove(), 3000);
+        }
+
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.createElement('div');
+            statusDiv.className = `status-message ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 15px 20px;
+                border-radius: 5px;
+                color: white;
+                font-weight: bold;
+                z-index: 1000;
+                max-width: 300px;
+                ${type === 'error' ? 'background: #e74c3c;' : 
+                  type === 'success' ? 'background: #27ae60;' : 
+                  'background: #3498db;'}
+            `;
+            
+            document.body.appendChild(statusDiv);
+            
+            setTimeout(() => {
+                if (statusDiv.parentNode) {
+                    statusDiv.parentNode.removeChild(statusDiv);
+                }
+            }, 5000);
+        }
+
+        // File viewing and downloading functions
+        function viewManual(manualId) {
+            const viewUrl = `${BFF_URL}/api/manuals/${manualId}/view`;
+            const token = localStorage.getItem('skymanuals_token');
+            
+            // Open PDF in new tab with authorization
+            const newWindow = window.open('', '_blank');
+            newWindow.location.href = `${viewUrl}?token=${token}`;
+        }
+
+        function downloadManual(manualId, filename = 'manual.pdf') {
+            const downloadUrl = `${BFF_URL}/api/manuals/${manualId}/download`;
+            const token = localStorage.getItem('skymanuals_token');
+            
+            // Create a temporary link to trigger download
+            const link = document.createElement('a');
+            link.href = `${downloadUrl}?token=${token}`;
+            link.download = filename;
+            link.style.display = 'none';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // Logout function
+        function logout() {
+            localStorage.removeItem('skymanuals_token');
+            localStorage.removeItem('skymanuals_user');
+            window.location.href = 'http://localhost:3002/frontend/auth/login.html';
+        }
+    </script>
+</body>
+</html>

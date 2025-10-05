@@ -85,3 +85,9 @@ echo "   API Health: http://localhost:3001/api/health"
 
 echo ""
 echo "🛑 To stop services: docker-compose down"
+
+
+
+
+
+

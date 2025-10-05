@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GuardrailsService } from './guardrails.service';
+import { OpenAIComplianceService } from '../compliance/openai-compliance.service';
 import { 
   SearchQuery, 
   AskResponse, 
@@ -15,7 +16,8 @@ export class SearchService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly guardrails: GuardrailsService
+    private readonly guardrails: GuardrailsService,
+    private readonly openaiService: OpenAIComplianceService
   ) {}
 
   /**
@@ -232,3 +234,219 @@ export class SearchService {
       // Get additional metadata for citation
       const paragraphInfo = await this.getParagraphInfo(result);
       
+      citations.push({
+        id: `citation-${i + 1}`,
+        title: result.title,
+        content: this.highlightQueryInContent(result.content, query),
+        source: {
+          manualId: result.manualId,
+          manualTitle: paragraphInfo.manualTitle,
+          chapterId: result.chapterId,
+          chapterTitle: paragraphInfo.chapterTitle,
+          sectionId: result.sectionId,
+          sectionTitle: paragraphInfo.sectionTitle,
+          blockId: result.blockId,
+          pageNumber: paragraphInfo.pageNumber || 1,
+          version: result.version,
+        },
+        relevanceScore: result.relevanceScore || 0.8,
+        highlightedText: this.extractHighlightedText(result.content, query),
+        context: this.extractContext(result.content, query),
+      });
+    }
+
+    return citations;
+  }
+
+  /**
+   * Generate embedding for text using OpenAI
+   */
+  private async generateEmbedding(text: string): Promise<number[]> {
+    try {
+      const result = await this.openaiService.generateEmbedding(text);
+      return result.embedding;
+    } catch (error) {
+      this.logger.warn(`Failed to generate embedding: ${error.message}`);
+      
+      // Fallback: return a simple hash-based vector
+      return this.generateFallbackEmbedding(text);
+    }
+  }
+
+  /**
+   * Generate fallback embedding using simple hash
+   */
+  private generateFallbackEmbedding(text: string): number[] {
+    const words = text.toLowerCase().split(/\s+/);
+    const embedding = new Array(1536).fill(0);
+    
+    words.forEach(word => {
+      const hash = this.simpleHash(word);
+      const index = Math.abs(hash) % 1536;
+      embedding[index] += 1;
+    });
+    
+    // Normalize
+    const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+    return embedding.map(val => val / magnitude);
+  }
+
+  private simpleHash(str: string): number {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return hash;
+  }
+
+  /**
+   * Get paragraph information for citations
+   */
+  private async getParagraphInfo(result: SearchIndex): Promise<{
+    manualTitle: string;
+    chapterTitle: string;
+    sectionTitle: string;
+    pageNumber?: number;
+  }> {
+    try {
+      // Get manual info
+      const manual = await this.prisma.manual.findUnique({
+        where: { id: result.manualId },
+        select: { title: true }
+      });
+
+      // Get chapter info
+      const chapter = await this.prisma.chapter.findUnique({
+        where: { id: result.chapterId },
+        select: { title: true }
+      });
+
+      // Get section info
+      const section = await this.prisma.section.findUnique({
+        where: { id: result.sectionId },
+        select: { title: true }
+      });
+
+      return {
+        manualTitle: manual?.title || 'Unknown Manual',
+        chapterTitle: chapter?.title || 'Unknown Chapter',
+        sectionTitle: section?.title || 'Unknown Section',
+        pageNumber: 1, // Would be calculated from content position
+      };
+    } catch (error) {
+      this.logger.error(`Error getting paragraph info: ${error.message}`);
+      return {
+        manualTitle: 'Unknown Manual',
+        chapterTitle: 'Unknown Chapter',
+        sectionTitle: 'Unknown Section',
+        pageNumber: 1,
+      };
+    }
+  }
+
+  /**
+   * Highlight query terms in content
+   */
+  private highlightQueryInContent(content: string, query: string): string {
+    const queryTerms = query.toLowerCase().split(/\s+/);
+    let highlighted = content;
+    
+    queryTerms.forEach(term => {
+      if (term.length > 2) { // Only highlight terms longer than 2 characters
+        const regex = new RegExp(`(${term})`, 'gi');
+        highlighted = highlighted.replace(regex, '<mark>$1</mark>');
+      }
+    });
+    
+    return highlighted;
+  }
+
+  /**
+   * Extract highlighted text around query matches
+   */
+  private extractHighlightedText(content: string, query: string): string {
+    const queryTerms = query.toLowerCase().split(/\s+/);
+    const sentences = content.split(/[.!?]+/);
+    
+    for (const sentence of sentences) {
+      const sentenceLower = sentence.toLowerCase();
+      const hasMatch = queryTerms.some(term => 
+        term.length > 2 && sentenceLower.includes(term)
+      );
+      
+      if (hasMatch) {
+        return sentence.trim();
+      }
+    }
+    
+    // Fallback: return first sentence
+    return sentences[0]?.trim() || content.substring(0, 100);
+  }
+
+  /**
+   * Extract context around the query match
+   */
+  private extractContext(content: string, query: string): string {
+    const queryTerms = query.toLowerCase().split(/\s+/);
+    const words = content.split(/\s+/);
+    const contextSize = 10; // Words before and after
+    
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i].toLowerCase().replace(/[^\w]/g, '');
+      const hasMatch = queryTerms.some(term => 
+        term.length > 2 && word.includes(term)
+      );
+      
+      if (hasMatch) {
+        const start = Math.max(0, i - contextSize);
+        const end = Math.min(words.length, i + contextSize + 1);
+        return words.slice(start, end).join(' ');
+      }
+    }
+    
+    // Fallback: return first part of content
+    return content.substring(0, 200);
+  }
+
+  /**
+   * Log search analytics
+   */
+  private async logSearchAnalytics(
+    query: string, 
+    response: AskResponse, 
+    userId?: string, 
+    sessionId?: string
+  ): Promise<void> {
+    try {
+      await this.prisma.searchAnalytics.create({
+        data: {
+          query,
+          userId,
+          sessionId,
+          resultCount: response.totalResults,
+          searchTimeMs: response.searchTimeMs,
+          timestamp: new Date(),
+        }
+      });
+    } catch (error) {
+      this.logger.error(`Failed to log search analytics: ${error.message}`);
+    }
+  }
+
+  /**
+   * Extract main content from search result
+   */
+  private extractMainContent(content: string): string {
+    // Remove markdown formatting and extract clean text
+    return content
+      .replace(/#{1,6}\s+/g, '') // Remove headers
+      .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold
+      .replace(/\*(.*?)\*/g, '$1') // Remove italic
+      .replace(/`(.*?)`/g, '$1') // Remove code
+      .replace(/\n+/g, ' ') // Replace newlines with spaces
+      .trim()
+      .substring(0, 500); // Limit length
+  }
+}

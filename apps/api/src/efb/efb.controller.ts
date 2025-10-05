@@ -8,6 +8,7 @@ import {
   UseGuards,
   Request,
   Logger,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { DeviceService } from './device.service';
@@ -19,6 +20,7 @@ import {
   HighlightSync,
   NoteSync,
   CacheInvalidationRequest,
+  RequestContext,
 } from '@skymanuals/types';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -32,11 +34,36 @@ export class EFBController {
     private readonly offlineCacheService: OfflineCacheService,
   ) {}
 
+  private createRequestContext(req: any, organizationId?: string): RequestContext {
+    return {
+      requestId: req.headers['x-request-id'] || `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      correlationId: req.headers['x-correlation-id'],
+      userId: req.user?.userId,
+      organizationId: organizationId || req.user?.organizationId || 'system',
+      userRole: req.user?.role,
+      permissions: req.user?.permissions || [],
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.headers['user-agent'],
+      timestamp: new Date().toISOString(),
+      metadata: {
+        userEmail: req.user?.email,
+        clientId: req.user?.clientId,
+      },
+    };
+  }
+
   @Post('devices/enroll')
   @ApiOperation({ summary: 'Enroll new EFB device' })
-  async enrollDevice(@Body() enrollment: DeviceEnrollmentRequest): Promise<any> {
+  async enrollDevice(
+    @Body() enrollment: DeviceEnrollmentRequest,
+    @Req() req: any,
+  ): Promise<any> {
     this.logger.log(`Device enrollment request: ${enrollment.deviceId}`);
-    return this.deviceService.enrollDevice(enrollment);
+    
+    // Create request context for audit logging
+    const context = this.createRequestContext(req, enrollment.organizationIdentifier);
+    
+    return this.deviceService.enrollDevice(enrollment, context);
   }
 
   @Post('devices/:deviceId/approve')
@@ -49,10 +76,15 @@ export class EFBController {
     @Request() req: any,
   ): Promise<any> {
     this.logger.log(`Approving device: ${deviceId}`);
+    
+    // Create request context for audit logging
+    const context = this.createRequestContext(req);
+    
     return this.deviceService.approveDevice(
       deviceId,
       req.user.id,
-      body.customPolicies,
+      body.customPolicies || [],
+      context,
     );
   }
 
@@ -186,18 +218,32 @@ export class EFBController {
 
   @Post('sync/highlights')
   @ApiOperation({ summary: 'Sync highlights from device' })
-  async syncHighlights(@Body() highlightSync: HighlightSync): Promise<any> {
+  async syncHighlights(
+    @Body() highlightSync: HighlightSync,
+    @Req() req: any,
+  ): Promise<any> {
     this.logger.log(
       `Syncing highlights from device ${highlightSync.deviceId}`,
     );
-    return this.offlineCacheService.syncHighlights(highlightSync);
+    
+    // Create request context for audit logging and conflict resolution
+    const context = this.createRequestContext(req);
+    
+    return this.offlineCacheService.syncHighlights(highlightSync, context);
   }
 
   @Post('sync/notes')
   @ApiOperation({ summary: 'Sync notes from device' })
-  async syncNotes(@Body() noteSync: NoteSync): Promise<any> {
+  async syncNotes(
+    @Body() noteSync: NoteSync,
+    @Req() req: any,
+  ): Promise<any> {
     this.logger.log(`Syncing notes from device ${noteSync.deviceId}`);
-    return this.offlineCacheService.syncNotes(noteSync);
+    
+    // Create request context for audit logging and conflict resolution
+    const context = this.createRequestContext(req);
+    
+    return this.offlineCacheService.syncNotes(noteSync, context);
   }
 
   @Post('cache/invalidate')

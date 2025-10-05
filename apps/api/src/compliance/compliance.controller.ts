@@ -2,14 +2,17 @@ import {
   Controller,
   Get,
   Post,
-  Body,
+  Put,
+  Delete,
   Param,
+  Body,
   Query,
+  Req,
+  Logger,
   UseGuards,
-  Request,
   HttpCode,
   HttpStatus,
-  ParseUUIDPipe,
+  ParseUUIDPipe
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -21,14 +24,14 @@ import {
 } from '@nestjs/swagger';
 import { RegulationLibraryService } from './regulation-library.service';
 import { ComplianceLinkService } from './compliance-link.service';
-import { ImpactAnalysisService } from './impact-analysis.service';
+import { ImpactAnalysisService, ImpactAnalysis, ComplianceAlert } from './impact-analysis.service';
+import { ComplianceDashboardService, ComplianceDashboard, ComplianceOverview } from './compliance-dashboard.service';
+import { OpenAIComplianceService, ComplianceAnalysis } from './openai-compliance.service';
 import {
   RegulationLibrary,
   ComplianceLinkResponse,
   CreateComplianceLinkDto,
-  ImpactAnalysis,
   ImpactAnalysisRequest,
-  ComplianceDashboard,
 } from '@skymanuals/types';
 
 // Mock auth guard for now
@@ -36,16 +39,372 @@ import {
 class MockAuthGuard {}
 
 @ApiTags('Compliance')
-@Controller()
+@Controller('compliance')
 @UseGuards(MockAuthGuard)
 export class ComplianceController {
+  private readonly logger = new Logger(ComplianceController.name);
+
   constructor(
     private readonly regulationLibraryService: RegulationLibraryService,
     private readonly complianceLinkService: ComplianceLinkService,
     private readonly impactAnalysisService: ImpactAnalysisService,
+    private readonly complianceDashboardService: ComplianceDashboardService,
+    private readonly openaiComplianceService: OpenAIComplianceService
   ) {}
 
-  // Regulation Library Routes
+  // Dashboard
+  @Get('dashboard')
+  @ApiOperation({ summary: 'Get compliance dashboard' })
+  @ApiResponse({
+    status: 200,
+    description: 'Compliance dashboard retrieved successfully',
+  })
+  async getDashboard(@Req() req: any): Promise<ComplianceDashboard> {
+    this.logger.log(`Getting compliance dashboard for organization ${req.user.organizationId}`);
+
+    try {
+      return await this.complianceDashboardService.getDashboard(req.user.organizationId);
+    } catch (error) {
+      this.logger.error(`Failed to get compliance dashboard:`, error);
+      throw error;
+    }
+  }
+
+  @Get('overview')
+  @ApiOperation({ summary: 'Get compliance overview' })
+  @ApiResponse({
+    status: 200,
+    description: 'Compliance overview retrieved successfully',
+  })
+  async getComplianceOverview(@Req() req: any): Promise<ComplianceOverview> {
+    try {
+      return await this.complianceDashboardService.getComplianceOverview(req.user.organizationId);
+    } catch (error) {
+      this.logger.error(`Failed to get compliance overview:`, error);
+      throw error;
+    }
+  }
+
+  // AI Compliance Analysis
+  @Post('analyze')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Analyze content for compliance' })
+  @ApiResponse({
+    status: 201,
+    description: 'Compliance analysis completed successfully',
+  })
+  async analyzeCompliance(
+    @Body() data: {
+      content: string;
+      manualId: string;
+      chapterId?: string;
+      sectionId?: string;
+      blockId?: string;
+    },
+    @Req() req: any
+  ): Promise<ComplianceAnalysis> {
+    this.logger.log(`Analyzing compliance for content in manual ${data.manualId}`);
+
+    try {
+      const analysis = await this.openaiComplianceService.analyzeCompliance(data.content, {
+        manualId: data.manualId,
+        chapterId: data.chapterId,
+        sectionId: data.sectionId,
+        blockId: data.blockId,
+        manualTitle: 'Manual Title' // This would be fetched from database
+      });
+
+      return analysis;
+    } catch (error) {
+      this.logger.error(`Failed to analyze compliance:`, error);
+      throw error;
+    }
+  }
+
+  @Post('ingest-regulation')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Ingest regulation document' })
+  @ApiResponse({
+    status: 201,
+    description: 'Regulation document ingested successfully',
+  })
+  async ingestRegulation(
+    @Body() data: {
+      title: string;
+      content: string;
+      framework: 'EASA' | 'FAA' | 'ICAO' | 'EU-OPS';
+      source: string;
+      version: string;
+      effectiveDate: string;
+    }
+  ): Promise<{ success: boolean; regulationId: string; chunks: number }> {
+    this.logger.log(`Ingesting regulation document: ${data.title}`);
+
+    try {
+      const result = await this.openaiComplianceService.ingestRegulationDocument({
+        ...data,
+        effectiveDate: new Date(data.effectiveDate)
+      });
+
+      return result;
+    } catch (error) {
+      this.logger.error(`Failed to ingest regulation document:`, error);
+      throw error;
+    }
+  }
+
+  // Impact Analysis
+  @Post('impact/:regulationId')
+  @ApiOperation({ summary: 'Analyze regulation impact' })
+  @ApiParam({ name: 'regulationId', type: 'string', format: 'uuid' })
+  @ApiResponse({
+    status: 200,
+    description: 'Impact analysis completed successfully',
+  })
+  async analyzeImpact(
+    @Param('regulationId', ParseUUIDPipe) regulationId: string,
+    @Req() req: any
+  ): Promise<ImpactAnalysis> {
+    this.logger.log(`Analyzing impact for regulation ${regulationId}`);
+
+    try {
+      return await this.impactAnalysisService.analyzeRegulationImpact(regulationId);
+    } catch (error) {
+      this.logger.error(`Failed to analyze regulation impact:`, error);
+      throw error;
+    }
+  }
+
+  @Get('impact-analyses')
+  @ApiOperation({ summary: 'Get impact analyses' })
+  @ApiResponse({
+    status: 200,
+    description: 'Impact analyses retrieved successfully',
+  })
+  async getImpactAnalyses(@Req() req: any): Promise<ImpactAnalysis[]> {
+    try {
+      return await this.impactAnalysisService.getImpactAnalyses(req.user.organizationId);
+    } catch (error) {
+      this.logger.error(`Failed to get impact analyses:`, error);
+      throw error;
+    }
+  }
+
+  // Compliance Alerts
+  @Get('alerts')
+  @ApiOperation({ summary: 'Get compliance alerts' })
+  @ApiResponse({
+    status: 200,
+    description: 'Compliance alerts retrieved successfully',
+  })
+  async getComplianceAlerts(@Req() req: any): Promise<ComplianceAlert[]> {
+    try {
+      return await this.impactAnalysisService.getComplianceAlerts(req.user.organizationId);
+    } catch (error) {
+      this.logger.error(`Failed to get compliance alerts:`, error);
+      throw error;
+    }
+  }
+
+  @Put('alerts/:alertId/resolve')
+  @ApiOperation({ summary: 'Resolve compliance alert' })
+  @ApiParam({ name: 'alertId', type: 'string', format: 'uuid' })
+  @ApiResponse({
+    status: 200,
+    description: 'Alert resolved successfully',
+  })
+  async resolveAlert(
+    @Param('alertId', ParseUUIDPipe) alertId: string,
+    @Body() data: { resolution: string },
+    @Req() req: any
+  ): Promise<{ success: boolean }> {
+    this.logger.log(`Resolving alert ${alertId}`);
+
+    try {
+      return await this.impactAnalysisService.resolveAlert(alertId, data.resolution);
+    } catch (error) {
+      this.logger.error(`Failed to resolve alert:`, error);
+      throw error;
+    }
+  }
+
+  // Compliance Links
+  @Get('links')
+  @ApiOperation({ summary: 'Get compliance links' })
+  @ApiQuery({ name: 'documentId', required: false, description: 'Filter by document ID' })
+  @ApiQuery({ name: 'regulationId', required: false, description: 'Filter by regulation ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Compliance links retrieved successfully',
+  })
+  async getComplianceLinks(
+    @Query('documentId') documentId?: string,
+    @Query('regulationId') regulationId?: string,
+    @Req() req: any
+  ) {
+    const query = { documentId, regulationId };
+    return this.complianceLinkService.getComplianceLinks(query);
+  }
+
+  @Post('links')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Create compliance link' })
+  @ApiResponse({
+    status: 201,
+    description: 'Compliance link created successfully',
+  })
+  async createComplianceLink(@Body() data: any, @Req() req: any) {
+    return this.complianceLinkService.createComplianceLink(data);
+  }
+
+  // Statistics
+  @Get('statistics')
+  @ApiOperation({ summary: 'Get compliance statistics' })
+  @ApiResponse({
+    status: 200,
+    description: 'Compliance statistics retrieved successfully',
+  })
+  async getComplianceStatistics(@Req() req: any) {
+    try {
+      return await this.openaiComplianceService.getComplianceStatistics(req.user.organizationId);
+    } catch (error) {
+      this.logger.error(`Failed to get compliance statistics:`, error);
+      throw error;
+    }
+  }
+
+  // Reports
+  @Post('reports')
+  @ApiOperation({ summary: 'Generate compliance report' })
+  @ApiResponse({
+    status: 200,
+    description: 'Compliance report generated successfully',
+  })
+  async generateComplianceReport(
+    @Body() data: {
+      startDate: string;
+      endDate: string;
+    },
+    @Req() req: any
+  ) {
+    this.logger.log(`Generating compliance report for organization ${req.user.organizationId}`);
+
+    try {
+      return await this.complianceDashboardService.generateComplianceReport(
+        req.user.organizationId,
+        new Date(data.startDate),
+        new Date(data.endDate)
+      );
+    } catch (error) {
+      this.logger.error(`Failed to generate compliance report:`, error);
+      throw error;
+    }
+  }
+
+  // Health Check
+  @Get('health')
+  @ApiOperation({ summary: 'Get compliance services health status' })
+  @ApiResponse({
+    status: 200,
+    description: 'Health status retrieved successfully',
+  })
+  async getHealth() {
+    try {
+      const [openaiHealth, impactHealth, dashboardHealth] = await Promise.all([
+        this.openaiComplianceService.healthCheck(),
+        this.impactAnalysisService.healthCheck(),
+        this.complianceDashboardService.healthCheck()
+      ]);
+
+      const allHealthy = openaiHealth.status === 'healthy' && 
+                        impactHealth.status === 'healthy' && 
+                        dashboardHealth.status === 'healthy';
+
+      return {
+        success: true,
+        status: allHealthy ? 'healthy' : 'unhealthy',
+        services: {
+          openai: openaiHealth,
+          impactAnalysis: impactHealth,
+          dashboard: dashboardHealth
+        }
+      };
+    } catch (error) {
+      this.logger.error(`Health check failed:`, error);
+      return {
+        success: false,
+        status: 'unhealthy',
+        error: error.message
+      };
+    }
+  }
+
+  // Test endpoints
+  @Post('test/embedding')
+  @ApiOperation({ summary: 'Test OpenAI embedding generation' })
+  @ApiResponse({
+    status: 200,
+    description: 'Embedding test completed',
+  })
+  async testEmbedding(@Body() data: { text: string }) {
+    try {
+      const result = await this.openaiComplianceService.generateEmbedding(data.text);
+      
+      return {
+        success: true,
+        result: {
+          dimensions: result.embedding.length,
+          tokenCount: result.tokenCount,
+          model: result.model
+        }
+      };
+    } catch (error) {
+      this.logger.error(`Embedding test failed:`, error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  @Post('test/compliance-analysis')
+  @ApiOperation({ summary: 'Test compliance analysis' })
+  @ApiResponse({
+    status: 200,
+    description: 'Compliance analysis test completed',
+  })
+  async testComplianceAnalysis(
+    @Body() data: {
+      content: string;
+      manualId: string;
+    },
+    @Req() req: any
+  ) {
+    try {
+      const analysis = await this.openaiComplianceService.analyzeCompliance(data.content, {
+        manualId: data.manualId,
+        manualTitle: 'Test Manual'
+      });
+
+      return {
+        success: true,
+        analysis: {
+          overallCompliance: analysis.overallCompliance,
+          riskLevel: analysis.riskLevel,
+          matchesCount: analysis.matches.length,
+          recommendations: analysis.recommendations
+        }
+      };
+    } catch (error) {
+      this.logger.error(`Compliance analysis test failed:`, error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  // Legacy endpoints for backward compatibility
   @Get('regulation-libraries')
   @ApiOperation({ summary: 'Get all regulation libraries' })
   @ApiResponse({
@@ -86,50 +445,6 @@ export class ComplianceController {
     return this.regulationLibraryService.getRegulationItems(libraryId, { category, priority });
   }
 
-  @Post('regulation-libraries/:libraryId/items')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Add regulation items to library' })
-  @ApiParam({ name: 'libraryId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 201,
-    description: 'Regulation items added successfully',
-  })
-  async addRegulationItems(
-    @Param('libraryId', ParseUUIDPipe) libraryId: string,
-    @Body() itemsData: any[],
-  ): Promise<any[]> {
-    return this.regulationLibraryService.addRegulationItems(libraryId, itemsData);
-  }
-
-  @Post('regulation-libraries/:libraryId/update')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create library update job' })
-  @ApiParam({ name: 'libraryId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 201,
-    description: 'Library update job created successfully',
-  })
-  async updateLibraryVersion(
-    @Param('libraryId', ParseUUIDPipe) libraryId: string,
-    @Body() updateData: any,
-  ): Promise<any> {
-    return this.regulationLibraryService.updateVersion(libraryId, updateData);
-  }
-
-  @Get('regulation-libraries/:libraryId/updates')
-  @ApiOperation({ summary: 'Get library update history' })
-  @ApiParam({ name: 'libraryId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Library update history retrieved successfully',
-  })
-  async getLibraryUpdateHistory(
-    @Param('libraryId', ParseUUIDPipe) libraryId: string,
-  ): Promise<any[]> {
-    return this.regulationLibraryService.getUpdateHistory(libraryId);
-  }
-
-  // Compliance Link Routes
   @Post('manuals/:manualId/compliance-links')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create compliance link' })
@@ -138,10 +453,10 @@ export class ComplianceController {
     status: 201,
     description: 'Compliance link created successfully',
   })
-  async createComplianceLink(
+  async createComplianceLinkLegacy(
     @Param('manualId', ParseUUIDPipe) manualId: string,
     @Body() createLinkDto: CreateComplianceLinkDto,
-    @Request() req: any,
+    @Req() req: any,
   ): Promise<any> {
     const userId = req.user?.id || 'mock-user-id';
     return this.complianceLinkService.createLink(manualId, createLinkDto, userId);
@@ -157,7 +472,7 @@ export class ComplianceController {
     description: 'Compliance links retrieved successfully',
     type: [ComplianceLinkResponse],
   })
-  async getComplianceLinks(
+  async getComplianceLinksLegacy(
     @Query('manualId') manualId?: string,
     @Query('regulationLibraryId') regulationLibraryId?: string,
     @Query('status') status?: string,
@@ -165,79 +480,6 @@ export class ComplianceController {
     return this.complianceLinkService.getLinks(manualId, regulationLibraryId, status);
   }
 
-  @Get('blocks/:blockId/compliance-links')
-  @ApiOperation({ summary: 'Get compliance links for specific block' })
-  @ApiParam({ name: 'blockId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Compliance links retrieved successfully',
-    type: [ComplianceLinkResponse],
-  })
-  async getBlockComplianceLinks(
-    @Param('blockId', ParseUUIDPipe) blockId: string,
-  ): Promise<ComplianceLinkResponse[]> {
-    return this.complianceLinkService.getLinksByBlockId(blockId);
-  }
-
-  @Get('blocks/:blockId/suggest-links')
-  @ApiOperation({ summary: 'Get suggested compliance links for block' })
-  @ApiParam({ name: 'blockId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Suggested compliance links retrieved successfully',
-  })
-  async getSuggestedLinks(
-    @Param('blockId', ParseUUIDPipe) blockId: string,
-  ): Promise<any[]> {
-    return this.complianceLinkService.suggestLinksForBlock(blockId);
-  }
-
-  @Post('compliance-links/:linkId/status')
-  @ApiOperation({ summary: 'Update compliance link status' })
-  @ApiParam({ name: 'linkId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Compliance link status updated successfully',
-  })
-  async updateLinkStatus(
-    @Param('linkId', ParseUUIDPipe) linkId: string,
-    @Body() statusData: { status: string; reviewedBy?: string },
-  ): Promise<any> {
-    return this.complianceLinkService.updateLinkStatus(
-      linkId,
-      statusData.status,
-      statusData.reviewedBy,
-    );
-  }
-
-  @Post('compliance-links/:linkId/delete')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete compliance link' })
-  @ApiParam({ name: 'linkId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 204,
-    description: 'Compliance link deleted successfully',
-  })
-  async deleteComplianceLink(
-    @Param('linkId', ParseUUIDPipe) linkId: string,
-  ): Promise<void> {
-    return this.complianceLinkService.deleteLink(linkId);
-  }
-
-  @Get('manuals/:manualId/coverage-report')
-  @ApiOperation({ summary: 'Get compliance coverage report for manual' })
-  @ApiParam({ name: 'manualId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Coverage report retrieved successfully',
-  })
-  async getCoverageReport(
-    @Param('manualId', ParseUUIDPipe) manualId: string,
-  ): Promise<any> {
-    return this.complianceLinkService.getCoverageReport(manualId);
-  }
-
-  // Impact Analysis Routes
   @Post('impact-analyses')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create impact analysis' })
@@ -248,185 +490,9 @@ export class ComplianceController {
   })
   async createImpactAnalysis(
     @Body() request: ImpactAnalysisRequest,
-    @Request() req: any,
+    @Req() req: any,
   ): Promise<ImpactAnalysis> {
     const userId = req.user?.id || 'mock-user-id';
     return this.impactAnalysisService.analyzeImpact(request, userId);
-  }
-
-  @Get('impact-analyses/:analysisId')
-  @ApiOperation({ summary: 'Get impact analysis by ID' })
-  @ApiParam({ name: 'analysisId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Impact analysis retrieved successfully',
-    type: ImpactAnalysis,
-  })
-  async getImpactAnalysis(
-    @Param('analysisId', ParseUUIDPipe) analysisId: string,
-  ): Promise<ImpactAnalysis> {
-    return this.impactAnalysisService.getImpactAnalysis(analysisId);
-  }
-
-  @Get('impact-analyses')
-  @ApiOperation({ summary: 'Get recent impact analyses' })
-  @ApiQuery({ name: 'organizationId', required: false, description: 'Filter by organization ID' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Limit number of results' })
-  @ApiResponse({
-    status: 200,
-    description: 'Recent impact analyses retrieved successfully',
-    type: [ImpactAnalysis],
-  })
-  async getRecentImpactAnalyses(
-    @Query('organizationId') organizationId?: string,
-    @Query('limit') limit?: string,
-  ): Promise<ImpactAnalysis[]> {
-    const limitNum = limit ? parseInt(limit, 10) : 10;
-    return this.impactAnalysisService.getRecentAnalyses(organizationId || 'default-org', limitNum);
-  }
-
-  @Post('impact-analyses/:analysisId/acknowledge')
-  @ApiOperation({ summary: 'Acknowledge impact analysis' })
-  @ApiParam({ name: 'analysisId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Impact analysis acknowledged successfully',
-    type: ImpactAnalysis,
-  })
-  async acknowledgeImpactAnalysis(
-    @Param('analysisId', ParseUUIDPipe) analysisId: string,
-    @Request() req: any,
-  ): Promise<ImpactAnalysis> {
-    const userId = req.user?.id || 'mock-user-id';
-    return this.impactAnalysisService.acknowledgeAnalysis(analysisId, userId);
-  }
-
-  // Dashboard Routes
-  @Get('compliance/dashboard')
-  @ApiOperation({ summary: 'Get compliance dashboard data' })
-  @ApiQuery({ name: 'organizationId', required: false, description: 'Organization ID' })
-  @ApiResponse({
-    status: 200,
-    description: 'Compliance dashboard data retrieved successfully',
-    type: ComplianceDashboard,
-  })
-  async getComplianceDashboard(
-    @Query('organizationId') organizationId?: string,
-  ): Promise<ComplianceDashboard> {
-    return this.getDashboardData(organizationId || 'default-org');
-  }
-
-  @Get('compliance/pending-updates')
-  @ApiOperation({ summary: 'Get pending regulation updates' })
-  @ApiQuery({ name: 'organizationId', required: false, description: 'Organization ID' })
-  @ApiResponse({
-    status: 200,
-    description: 'Pending updates retrieved successfully',
-  })
-  async getPendingUpdates(
-    @Query('organizationId') organizationId?: string,
-  ): Promise<any[]> {
-    return this.regulationLibraryService.getPendingUpdates(organizationId || 'default-org');
-  }
-
-  // Helper methods
-  private async getDashboardData(organizationId: string): Promise<ComplianceDashboard> {
-    // Mock dashboard data - in production, this would aggregate real data
-    return {
-      organizationId,
-      lastUpdateDate: new Date().toISOString(),
-      overview: {
-        totalManuals: 25,
-        totalParagraphs: 1850,
-        complianceLinks: {
-          total: 1240,
-          active: 1120,
-          questioned: 85,
-          invalid: 35,
-        },
-        coverageStats: {
-          globalCoverage: 72,
-          criticalCoverage: 95,
-          chapterCoverage: [
-            { chapterId: 'ch-1', coverage: 85 },
-            { chapterId: 'ch-2', coverage: 68 },
-            { chapterId: 'ch-3', coverage: 74 },
-            { chapterId: 'ch-4', coverage: 62 },
-          ],
-        },
-      },
-      alerts: {
-        critical: 3,
-        high: 8,
-        medium: 12,
-        low: 25,
-        recent: [
-          {
-            id: 'alert-1',
-            alertType: 'REGULATION_UPDATE',
-            severity: 'HIGH',
-            title: 'EASA Part-ML Updated',
-            createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-          },
-          {
-            id: 'alert-2',
-            alertType: 'COMPLIANCE_GAP',
-            severity: 'MEDIUM',
-            title: 'Missing Maintenance Links',
-            createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
-          },
-        ],
-      },
-      upcomingDeadlines: [
-        {
-          id: 'deadline-1',
-          type: 'REGULATION_EFFECTIVE',
-          title: 'EU-OPS 1.175 Implementation',
-          deadline: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-          severity: 'HIGH',
-        },
-        {
-          id: 'deadline-2',
-          type: 'AUDIT_DUE',
-          title: 'Quarterly Compliance Review',
-          deadline: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-          severity: 'MEDIUM',
-        },
-      ],
-      recentActivities: [
-        {
-          type: 'LINK_CREATED',
-          description: 'Compliance link created for FAR 121.445',
-          user: 'John Smith',
-          timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-        },
-        {
-          type: 'ALERT_RESOLVED',
-          description: 'EASA Part-ML update requirements implemented',
-          user: 'Sarah Johnson',
-          timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-        },
-        {
-          type: 'COVERAGE_IMPROVED',
-          description: 'Manual coverage increased to 72%',
-          user: 'System',
-          timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-        },
-      ],
-      trends: {
-        coverageTrend: [
-          { date: '2024-01-01', percentage: 68 },
-          { date: '2024-01-15', percentage: 70 },
-          { date: '2024-02-01', percentage: 72 },
-          { date: '2024-02-15', percentage: 72 },
-        ],
-        alertTrend: [
-          { date: '2024-01-01', count: 35 },
-          { date: '2024-01-15', count: 28 },
-          { date: '2024-02-01', count: 22 },
-          { date: '2024-02-15', count: 18 },
-        ],
-      },
-    };
   }
 }

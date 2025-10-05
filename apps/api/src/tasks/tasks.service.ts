@@ -314,8 +314,7 @@ export class TasksService {
         // Create tasks for next stage
         const nextStage = stages.find(s => s.id === nextStageId);
         if (nextStage) {
-          // Note: In a real implementation, createStageTasks would be extracted
-          // and called here to create tasks for the next stage
+          await this.createStageTasks(workflowInstanceId, nextStage.id, tx);
         }
       } else {
         // Workflow completed
@@ -361,4 +360,234 @@ export class TasksService {
       }),
     };
   }
+
+  /**
+   * Create tasks for a workflow stage
+   */
+  private async createStageTasks(
+    workflowInstanceId: string, 
+    stageId: string, 
+    tx: any
+  ): Promise<void> {
+    try {
+      // Get stage definition
+      const stage = await tx.workflowStage.findUnique({
+        where: { id: stageId },
+        include: {
+          workflowDefinition: {
+            include: {
+              organization: true
+            }
+          }
+        }
+      });
+
+      if (!stage) {
+        throw new NotFoundException(`Stage ${stageId} not found`);
+      }
+
+      // Get workflow instance for context
+      const workflowInstance = await tx.workflowInstance.findUnique({
+        where: { id: workflowInstanceId },
+        include: {
+          manual: {
+            include: {
+              organization: true
+            }
+          }
+        }
+      });
+
+      if (!workflowInstance) {
+        throw new NotFoundException(`Workflow instance ${workflowInstanceId} not found`);
+      }
+
+      // Define task templates based on stage type
+      const taskTemplates = this.getTaskTemplatesForStage(stage.name, workflowInstance);
+
+      // Create tasks for each template
+      for (const template of taskTemplates) {
+        // Find suitable assignee
+        const assignee = await this.findAssigneeForTask(
+          template.role,
+          workflowInstance.manual.organizationId,
+          tx
+        );
+
+        if (!assignee) {
+          console.warn(`No assignee found for role: ${template.role}`);
+          continue;
+        }
+
+        // Create the task
+        await tx.approvalTask.create({
+          data: {
+            workflowInstanceId,
+            stageId,
+            assignedToUserId: assignee.id,
+            title: template.title,
+            description: template.description,
+            role: template.role,
+            priority: template.priority,
+            dueDate: template.dueDate,
+            status: 'PENDING',
+            createdAt: new Date(),
+          }
+        });
+
+        console.log(`Created task: ${template.title} for user: ${assignee.email}`);
+      }
+
+    } catch (error) {
+      console.error(`Error creating stage tasks: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Get task templates for a specific stage
+   */
+  private getTaskTemplatesForStage(stageName: string, workflowInstance: any): Array<{
+    role: string;
+    title: string;
+    description: string;
+    priority: string;
+    dueDate: Date;
+  }> {
+    const baseDueDate = new Date();
+    baseDueDate.setDate(baseDueDate.getDate() + 7); // 7 days default
+
+    switch (stageName.toLowerCase()) {
+      case 'initial_review':
+        return [
+          {
+            role: 'technical_reviewer',
+            title: `Technical Review: ${workflowInstance.manual.title}`,
+            description: `Please review the technical content of ${workflowInstance.manual.title} for accuracy and completeness.`,
+            priority: 'HIGH',
+            dueDate: new Date(baseDueDate.getTime() + 2 * 24 * 60 * 60 * 1000) // 2 days
+          },
+          {
+            role: 'content_reviewer',
+            title: `Content Review: ${workflowInstance.manual.title}`,
+            description: `Please review the content structure and language of ${workflowInstance.manual.title}.`,
+            priority: 'MEDIUM',
+            dueDate: new Date(baseDueDate.getTime() + 3 * 24 * 60 * 60 * 1000) // 3 days
+          }
+        ];
+
+      case 'compliance_review':
+        return [
+          {
+            role: 'compliance_officer',
+            title: `Compliance Review: ${workflowInstance.manual.title}`,
+            description: `Please review ${workflowInstance.manual.title} for regulatory compliance and safety requirements.`,
+            priority: 'HIGH',
+            dueDate: new Date(baseDueDate.getTime() + 5 * 24 * 60 * 60 * 1000) // 5 days
+          },
+          {
+            role: 'safety_officer',
+            title: `Safety Review: ${workflowInstance.manual.title}`,
+            description: `Please review safety procedures and emergency protocols in ${workflowInstance.manual.title}.`,
+            priority: 'URGENT',
+            dueDate: new Date(baseDueDate.getTime() + 3 * 24 * 60 * 60 * 1000) // 3 days
+          }
+        ];
+
+      case 'final_approval':
+        return [
+          {
+            role: 'final_approver',
+            title: `Final Approval: ${workflowInstance.manual.title}`,
+            description: `Please provide final approval for ${workflowInstance.manual.title} after reviewing all previous feedback.`,
+            priority: 'HIGH',
+            dueDate: new Date(baseDueDate.getTime() + 2 * 24 * 60 * 60 * 1000) // 2 days
+          }
+        ];
+
+      case 'quality_assurance':
+        return [
+          {
+            role: 'qa_specialist',
+            title: `QA Review: ${workflowInstance.manual.title}`,
+            description: `Please perform quality assurance review of ${workflowInstance.manual.title} including formatting and consistency.`,
+            priority: 'MEDIUM',
+            dueDate: new Date(baseDueDate.getTime() + 4 * 24 * 60 * 60 * 1000) // 4 days
+          }
+        ];
+
+      default:
+        return [
+          {
+            role: 'reviewer',
+            title: `Review: ${workflowInstance.manual.title}`,
+            description: `Please review ${workflowInstance.manual.title} in stage: ${stageName}.`,
+            priority: 'MEDIUM',
+            dueDate: baseDueDate
+          }
+        ];
+    }
+  }
+
+  /**
+   * Find suitable assignee for a task role
+   */
+  private async findAssigneeForTask(
+    role: string, 
+    organizationId: string, 
+    tx: any
+  ): Promise<any | null> {
+    try {
+      // First, try to find users with specific roles
+      const roleMappings = {
+        'technical_reviewer': ['technical_reviewer', 'engineer', 'technical_specialist'],
+        'content_reviewer': ['content_reviewer', 'editor', 'technical_writer'],
+        'compliance_officer': ['compliance_officer', 'regulatory_specialist'],
+        'safety_officer': ['safety_officer', 'safety_specialist'],
+        'final_approver': ['final_approver', 'manager', 'director'],
+        'qa_specialist': ['qa_specialist', 'quality_assurance']
+      };
+
+      const possibleRoles = roleMappings[role] || [role];
+
+      // Find user with matching role in organization
+      const user = await tx.user.findFirst({
+        where: {
+          organizationId,
+          roles: {
+            hasSome: possibleRoles
+          },
+          status: 'ACTIVE'
+        },
+        orderBy: {
+          lastActiveAt: 'desc'
+        }
+      });
+
+      if (user) {
+        return user;
+      }
+
+      // Fallback: find any active user in organization
+      const fallbackUser = await tx.user.findFirst({
+        where: {
+          organizationId,
+          status: 'ACTIVE'
+        },
+        orderBy: {
+          lastActiveAt: 'desc'
+        }
+      });
+
+      return fallbackUser;
+
+    } catch (error) {
+      console.error(`Error finding assignee for role ${role}: ${error.message}`);
+      return null;
+    }
+  }
 }
+
+
+
+

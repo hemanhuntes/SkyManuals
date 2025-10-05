@@ -8,6 +8,9 @@ import { ManualsController } from './manuals/manuals.controller';
 import { PrismaService } from './prisma/prisma.service';
 import { ManualsService } from './manuals/manuals.service';
 import { DiffEngineService } from './diff-engine/diff-engine.service';
+import { ManualProcessingService } from './manuals/manual-processing.service';
+import { ManualExportService } from './manuals/manual-export.service';
+import { PerformanceOptimizationService } from './manuals/performance-optimization.service';
 
 // Epic-02 Components  
 import { WorkflowsController } from './workflows/workflows.controller';
@@ -17,10 +20,18 @@ import { TasksService } from './tasks/tasks.service';
 import { CommentsController } from './comments/comments.controller';
 import { CommentsService } from './comments/comments.service';
 import { NotificationService } from './notifications/notification.service';
+import { EmailService } from './notifications/email.service';
+import { SlackService } from './notifications/slack.service';
+import { NotificationGateway } from './notifications/notification.gateway';
+import { NotificationController } from './notifications/notification.controller';
+import { WorkflowStateMachineService } from './workflows/workflow-state-machine.service';
 
 // Epic-03 Components
 import { ReaderController } from './reader/reader.controller';
 import { ReaderService } from './reader/reader.service';
+import { BundleGenerationService } from './reader/bundle-generation.service';
+import { CloudFrontService } from './reader/cloudfront.service';
+import { ProgressTrackingService } from './reader/progress-tracking.service';
 import { PublishPipelineService } from './publish-pipeline/publish-pipeline.service';
 import { SearchIndexService } from './search-engine/search-index.service';
 
@@ -29,6 +40,8 @@ import { ComplianceController } from './compliance/compliance.controller';
 import { RegulationLibraryService } from './compliance/regulation-library.service';
 import { ComplianceLinkService } from './compliance/compliance-link.service';
 import { ImpactAnalysisService } from './compliance/impact-analysis.service';
+import { OpenAIComplianceService } from './compliance/openai-compliance.service';
+import { ComplianceDashboardService } from './compliance/compliance-dashboard.service';
 
 // Epic-05 Components
 import { SearchController } from './search/search.controller';
@@ -76,16 +89,29 @@ import { HookExecutionService } from './addons/hook-execution.service';
     PrismaService,
     ManualsService,
     DiffEngineService,
+    ManualProcessingService,
+    ManualExportService,
+    PerformanceOptimizationService,
     WorkflowsService,
     TasksService,
     CommentsService,
     NotificationService,
+    EmailService,
+    SlackService,
+    NotificationGateway,
+    NotificationController,
+    WorkflowStateMachineService,
     ReaderService,
+    BundleGenerationService,
+    CloudFrontService,
+    ProgressTrackingService,
     PublishPipelineService,
     SearchIndexService,
     RegulationLibraryService,
     ComplianceLinkService,
     ImpactAnalysisService,
+    OpenAIComplianceService,
+    ComplianceDashboardService,
     SearchService,
     IndexingService,
     GuardrailsService,

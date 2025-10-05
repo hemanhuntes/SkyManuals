@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkyManuals - Admin Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .admin-section {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .manual-card {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 15px 0;
+            transition: all 0.3s ease;
+        }
+
+        .manual-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .manual-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+        }
+
+        .manual-title {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .manual-meta {
+            color: #6c757d;
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+
+        .status-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .status-draft { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        .status-pending { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        .status-approved { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .status-rejected { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .status-published { background: #cce5ff; color: #004085; border: 1px solid #b3d7ff; }
+
+        .manual-description {
+            color: #495057;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+            text-transform: uppercase;
+            transition: all 0.3s ease;
+            font-size: 0.8rem;
+        }
+
+        .btn-edit { background: #17a2b8; color: white; }
+        .btn-edit:hover { background: #138496; transform: translateY(-1px); }
+
+        .btn-delete { background: #dc3545; color: white; }
+        .btn-delete:hover { background: #c82333; transform: translateY(-1px); }
+
+        .btn-approve { background: #28a745; color: white; }
+        .btn-approve:hover { background: #218838; transform: translateY(-1px); }
+
+        .btn-reject { background: #dc3545; color: white; }
+        .btn-reject:hover { background: #c82333; transform: translateY(-1px); }
+
+        .btn-publish { background: #007bff; color: white; }
+        .btn-publish:hover { background: #0056b3; transform: translateY(-1px); }
+
+        .btn-logout {
+            background: #6c757d;
+            color: white;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #3498db;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 30px;
+            border-radius: 10px;
+            width: 80%;
+            max-width: 500px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover { color: #000; }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+
+        .form-group textarea {
+            height: 100px;
+            resize: vertical;
+        }
+
+        .btn-primary {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>⚙️ SkyManuals Admin Dashboard</h1>
+            <p>Manage all aviation manuals and documents</p>
+            <button class="btn btn-logout" onclick="logout()">Logout</button>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number" id="totalCount">0</div>
+                <div class="stat-label">Total Manuals</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="approvedCount">0</div>
+                <div class="stat-label">Approved</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="pendingCount">0</div>
+                <div class="stat-label">Pending Review</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="rejectedCount">0</div>
+                <div class="stat-label">Rejected</div>
+            </div>
+        </div>
+
+        <div class="admin-section">
+            <h2 class="section-title">
+                📋 All Manuals Management
+                <button class="btn btn-primary" onclick="refreshManuals()">Refresh</button>
+            </h2>
+            
+            <div class="loading" id="loadingManuals">
+                <div class="spinner"></div>
+                <p>Loading all manuals...</p>
+            </div>
+
+            <div id="manualsList"></div>
+            
+            <div class="empty-state" id="emptyState" style="display: none;">
+                <h3>📝 No manuals found</h3>
+                <p>No manuals are currently in the system.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditModal()">&times;</span>
+            <h2>Edit Manual</h2>
+            <form id="editForm">
+                <div class="form-group">
+                    <label for="editTitle">Title:</label>
+                    <input type="text" id="editTitle" required>
+                </div>
+                <div class="form-group">
+                    <label for="editDescription">Description:</label>
+                    <textarea id="editDescription"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="editVersion">Version:</label>
+                    <input type="text" id="editVersion" required>
+                </div>
+                <button type="submit" class="btn-primary">Update Manual</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Status Change Modal -->
+    <div id="statusModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeStatusModal()">&times;</span>
+            <h2>Change Manual Status</h2>
+            <form id="statusForm">
+                <div class="form-group">
+                    <label for="statusSelect">New Status:</label>
+                    <select id="statusSelect" required>
+                        <option value="DRAFT">Draft</option>
+                        <option value="PENDING_REVIEW">Pending Review</option>
+                        <option value="APPROVED">Approved</option>
+                        <option value="REJECTED">Rejected</option>
+                        <option value="PUBLISHED">Published</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn-primary">Change Status</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const BFF_URL = 'http://localhost:3002';
+        let authToken = null;
+        let currentUser = null;
+        let currentEditingId = null;
+
+        // Load data on page load
+        document.addEventListener('DOMContentLoaded', async () => {
+            await checkAuthentication();
+            if (authToken) {
+                await loadAllManuals();
+                await loadStats();
+            }
+        });
+
+        function checkAuthentication() {
+            authToken = localStorage.getItem('skymanuals_token');
+            const userStr = localStorage.getItem('skymanuals_user');
+            
+            if (!authToken || !userStr) {
+                alert('❌ Please login first');
+                window.location.href = 'http://localhost:3002/frontend/auth/login.html';
+                return false;
+            }
+
+            try {
+                currentUser = JSON.parse(userStr);
+                
+                // Check if user has admin role
+                if (!currentUser.roles.includes('admin')) {
+                    alert('❌ Access denied. Admin role required.');
+                    window.location.href = 'http://localhost:3002/frontend/auth/login.html';
+                    return false;
+                }
+                
+                return true;
+            } catch (error) {
+                alert('❌ Invalid user data. Please login again.');
+                localStorage.removeItem('skymanuals_token');
+                localStorage.removeItem('skymanuals_user');
+                window.location.href = 'http://localhost:3002/frontend/auth/login.html';
+                return false;
+            }
+        }
+
+        async function loadAllManuals() {
+            try {
+                const response = await fetch(`${BFF_URL}/api/manuals/all`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.manuals) {
+                    displayAllManuals(data.manuals);
+                    document.getElementById('loadingManuals').style.display = 'none';
+                } else {
+                    alert('Failed to load manuals: ' + (data.error || 'Unknown error'));
+                    document.getElementById('loadingManuals').style.display = 'none';
+                }
+            } catch (error) {
+                alert('Error loading manuals: ' + error.message);
+                document.getElementById('loadingManuals').style.display = 'none';
+            }
+        }
+
+        async function loadStats() {
+            try {
+                const response = await fetch(`${BFF_URL}/api/manuals/all`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const total = data.manuals.length;
+                    const approved = data.manuals.filter(m => m.status === 'APPROVED').length;
+                    const pending = data.manuals.filter(m => m.status === 'PENDING_REVIEW').length;
+                    const rejected = data.manuals.filter(m => m.status === 'REJECTED').length;
+                    
+                    document.getElementById('totalCount').textContent = total;
+                    document.getElementById('approvedCount').textContent = approved;
+                    document.getElementById('pendingCount').textContent = pending;
+                    document.getElementById('rejectedCount').textContent = rejected;
+                }
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        function displayAllManuals(manuals) {
+            const manualsList = document.getElementById('manualsList');
+            const emptyState = document.getElementById('emptyState');
+            
+            if (manuals.length === 0) {
+                manualsList.style.display = 'none';
+                emptyState.style.display = 'block';
+                return;
+            }
+            
+            manualsList.style.display = 'block';
+            emptyState.style.display = 'none';
+            
+            manualsList.innerHTML = manuals.map(manual => `
+                <div class="manual-card">
+                    <div class="manual-header">
+                        <div>
+                            <div class="manual-title">${manual.title}</div>
+                            <div class="manual-meta">
+                                Version ${manual.version} • Created ${new Date(manual.createdAt).toLocaleDateString()}
+                                ${manual.approvedBy ? ` • Approved by ${manual.approvedBy}` : ''}
+                            </div>
+                        </div>
+                        <span class="status-badge status-${manual.status.toLowerCase().replace('_', '')}">${manual.status.replace('_', ' ')}</span>
+                    </div>
+                    
+                    <div class="manual-description">
+                        ${manual.description || 'No description provided'}
+                    </div>
+                    
+                    <div class="action-buttons">
+                        <button class="btn btn-edit" onclick="editManual('${manual.id}', '${manual.title}', '${manual.description}', '${manual.version}')">
+                            ✏️ Edit
+                        </button>
+                        <button class="btn btn-approve" onclick="changeStatus('${manual.id}', 'APPROVED')">
+                            ✅ Approve
+                        </button>
+                        <button class="btn btn-reject" onclick="changeStatus('${manual.id}', 'REJECTED')">
+                            ❌ Reject
+                        </button>
+                        <button class="btn btn-publish" onclick="changeStatus('${manual.id}', 'PUBLISHED')">
+                            📢 Publish
+                        </button>
+                        <button class="btn btn-delete" onclick="deleteManual('${manual.id}', '${manual.title}')">
+                            🗑️ Delete
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function editManual(id, title, description, version) {
+            currentEditingId = id;
+            document.getElementById('editTitle').value = title;
+            document.getElementById('editDescription').value = description || '';
+            document.getElementById('editVersion').value = version;
+            document.getElementById('editModal').style.display = 'block';
+        }
+
+        function changeStatus(id, status) {
+            currentEditingId = id;
+            document.getElementById('statusSelect').value = status;
+            document.getElementById('statusModal').style.display = 'block';
+        }
+
+        async function deleteManual(id, title) {
+            if (!confirm(`Are you sure you want to delete "${title}"?\n\nThis action cannot be undone.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`${BFF_URL}/api/manuals/${id}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    alert('✅ Manual deleted successfully!');
+                    await loadAllManuals();
+                    await loadStats();
+                } else {
+                    alert('❌ Failed to delete manual: ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ Error deleting manual: ' + error.message);
+            }
+        }
+
+        document.getElementById('editForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const title = document.getElementById('editTitle').value;
+            const description = document.getElementById('editDescription').value;
+            const version = document.getElementById('editVersion').value;
+            
+            try {
+                const response = await fetch(`${BFF_URL}/api/manuals/${currentEditingId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ title, description, version })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    alert('✅ Manual updated successfully!');
+                    closeEditModal();
+                    await loadAllManuals();
+                } else {
+                    alert('❌ Failed to update manual: ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ Error updating manual: ' + error.message);
+            }
+        });
+
+        document.getElementById('statusForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const status = document.getElementById('statusSelect').value;
+            
+            try {
+                const response = await fetch(`${BFF_URL}/api/manuals/${currentEditingId}/status`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ status })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    alert(`✅ Manual status changed to ${status}!`);
+                    closeStatusModal();
+                    await loadAllManuals();
+                    await loadStats();
+                } else {
+                    alert('❌ Failed to change status: ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ Error changing status: ' + error.message);
+            }
+        });
+
+        function closeEditModal() {
+            document.getElementById('editModal').style.display = 'none';
+            currentEditingId = null;
+        }
+
+        function closeStatusModal() {
+            document.getElementById('statusModal').style.display = 'none';
+            currentEditingId = null;
+        }
+
+        function refreshManuals() {
+            document.getElementById('loadingManuals').style.display = 'block';
+            loadAllManuals();
+        }
+
+        function logout() {
+            localStorage.removeItem('skymanuals_token');
+            localStorage.removeItem('skymanuals_user');
+            window.location.href = 'http://localhost:3002/frontend/auth/login.html';
+        }
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            const editModal = document.getElementById('editModal');
+            const statusModal = document.getElementById('statusModal');
+            
+            if (event.target === editModal) {
+                closeEditModal();
+            }
+            if (event.target === statusModal) {
+                closeStatusModal();
+            }
+        }
+    </script>
+</body>
+</html>

@@ -372,3 +372,9 @@ async function markAnnotationAsSynced(annotationId) {
 }
 
 console.log('🚀 SkyManuals Service Worker loaded successfully!');
+
+
+
+
+
+

@@ -1,0 +1,2659 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Epic-01: Structured Authoring & Collaboration Models
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Epic-01 Relations
+  memberships Membership[]
+  authoredChangeSets ChangeSet[] @relation("ChangeSetAuthor")
+  editorSessions EditorSession[]
+  
+  // Epic-02 Relations
+  initiatedWorkflows WorkflowInstance[] @relation("WorkflowInstanceInitiatedBy")
+  cancelledWorkflows WorkflowInstance[] @relation("WorkflowInstanceCancelledBy")
+  assignedTasks ApprovalTask[]
+  completedTasks ApprovalTask[] @relation("ApprovalTaskCompletedBy")
+  comments Comment[]
+  completedChecklists Checklist[] @relation("ChecklistCompletedBy")
+  notifications Notification[]
+  
+  // Epic-03 Relations
+  accessPermissions AccessPermission[]
+  annotations Annotation[]
+  readerSessions ReaderSession[]
+  suggestEdits SuggestEdit[]
+  offlineCaches OfflineCache[]
+  readerAnalytics ReaderAnalytics[]
+  
+  // Epic-06 Relations
+  uploadedXmlDocuments XmlDocument[]
+  createdXmlDiffs XmlDiff[]
+  createdExportConfigurations XmlExportConfiguration[]
+  
+  // Epic-07 Relations
+  devices Device[] @relation("DeviceUser")
+  createdDevicePolicies DevicePolicy[] @relation("PolicyCreatedBy")
+  initiatedSyncJobs SyncJob[] @relation("SyncInitiatedBy")
+  deviceSessions DeviceSession[] @relation("DeviceSessionUser")
+  deviceAnalytics DeviceAnalytics[] @relation("DeviceAnalyticsUser")
+  
+  // Epic-08 Relations
+  userSessions UserSession[]
+  auditLogs AuditLog[] @relation("AuditLogUser")
+  roleChangeRequests RoleChangeRequest[] @relation("RoleChangeRequestUser")
+  requestedRoleChanges RoleChangeRequest[] @relation("RoleChangeRequestRequester")
+  reviewedRoleChanges RoleChangeRequest[] @relation("RoleChangeRequestReviewer")
+  
+  // Epic-09 Relations
+  addonReviews AddonReview[] @relation("AddonReviewUser")
+  
+  @@map("users")
+}
+
+model Organization {
+  id       String   @id @default(cuid())
+  name     String
+  slug     String   @unique
+  logoUrl  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Epic-01 Relations
+  memberships Membership[]
+  manuals Manual[]
+  templates Template[]
+  
+  // Epic-02 Relations
+  workflowDefinitions WorkflowDefinition[]
+  checklists Checklist[]
+  checklistTemplates ChecklistTemplate[]
+  
+  // Epic-03 Relations
+  featureFlags FeatureFlag[]
+  
+  // Epic-04 Relations
+  complianceAlerts ComplianceAlert[]
+  auditChecklists AuditChecklist[]
+  libraryUpdateJobs LibraryUpdateJob[]
+  complianceAnalytics ComplianceAnalytics[]
+  
+  // Epic-05 Relations
+  
+  // Epic-06 Relations
+  xmlDocuments XmlDocument[]
+  xmlExportConfigurations XmlExportConfiguration[]
+  
+  // Epic-07 Relations
+  devices Device[]
+  devicePolicies DevicePolicy[]
+  offlineCaches OfflineCache[]
+  syncJobs SyncJob[]
+  deviceAnalytics DeviceAnalytics[]
+  
+  // Epic-08 Relations
+  auditLogs AuditLog[]
+  permissionMatrices PermissionMatrix[]
+  roleChangeRequests RoleChangeRequest[] @relation("RoleChangeRequestOrganization")
+  oidcClients OIDCClient[] @relation("OIDCClientOrganization")
+  
+  // Epic-09 Relations
+  addonLicenses License[]
+  addonInstallations Installation[]
+  addonReviews AddonReview[] @relation("AddonReviewOrganization")
+  addonAnalytics AddonAnalytics[] @relation("AddonAnalyticsOrganization")
+  
+  @@map("organizations")
+}
+
+model Membership {
+  id      String @id @default(cuid())
+  userId  String
+  organizationId String
+  role    Role
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, organizationId])
+  @@map("memberships")
+}
+
+model Manual {
+  id      String @id @default(cuid())
+  organizationId String
+  title   String
+  status  ManualStatus @default(DRAFT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  chapters Chapter[]
+  changeSets ChangeSet[]
+  releaseSnapshots ReleaseSnapshot[]
+  versions Version[]
+  
+  // Epic-03 Relations
+  readerBundles ReaderBundle[]
+  accessPermissions AccessPermission[]
+  searchIndexes SearchIndex[]
+  annotations Annotation[]
+  readerSessions ReaderSession[]
+  suggestEdits SuggestEdit[]
+  revisionBars RevisionBar[]
+  operationallyCriticalFlags OperationallyCriticalFlag[]
+  readerAnalytics ReaderAnalytics[]
+  
+  // Epic-04 Relations
+  complianceLinks ComplianceLink[]
+  auditChecklists AuditChecklist[]
+  coverageAnalyses CoverageAnalysis[]
+  
+  // Epic-05 Relations
+  
+  // Epic-06 Relations
+  xmlMappings XmlMapping[]
+  
+  // Epic-07 Relations
+  offlineCaches OfflineCache[]
+  
+  @@map("manuals")
+}
+
+model Chapter {
+  id      String @id @default(cuid())
+  manualId String
+  title   String
+  number  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  sections Section[]
+  
+  // Epic-05 Relations
+  
+  // Epic-06 Relations
+  xmlMappings XmlMapping[]
+  
+  @@unique([manualId, number])
+  @@map("chapters")
+}
+
+model Section {
+  id      String @id @default(cuid())
+  chapterId String
+  title   String
+  number  String
+  status  SectionStatus @default(DRAFT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  blocks Block[]
+  editorSessions EditorSession[]
+  
+  // Epic-05 Relations
+  
+  // Epic-06 Relations
+  xmlMappings XmlMapping[]
+  
+  @@unique([chapterId, number])
+  @@map("sections")
+}
+
+model Block {
+  id      String @id @default(cuid())
+  sectionId String
+  content Json // TipTap JSON format
+  smartBlockType SmartBlockType?
+  smartBlockConfig Json? // Smart block configuration
+  attachments String[] // Array of attachment IDs
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  section Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  
+  // Epic-05 Relations
+  
+  // Epic-06 Relations
+  xmlMappings XmlMapping[]
+  
+  @@map("blocks")
+}
+
+model Attachment {
+  id            String @id @default(cuid())
+  fileName      String
+  originalFileName String
+  mimeType      String
+  size          Int
+  uploadedBy    String
+  uploadedAt    DateTime @default(now())
+  
+  @@map("attachments")
+}
+
+model Version {
+  id         String @id @default(cuid())
+  etag       String @unique // UUID for optimistic locking
+  manualId   String
+  chapterId  String?
+  sectionId  String?
+  blockId    String?
+  changeSetId String
+  createdAt  DateTime @default(now())
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  changeSet ChangeSet @relation(fields: [changeSetId], references: [id], onDelete: Cascade)
+  editorSessions EditorSession[]
+  
+  @@map("versions")
+}
+
+model ChangeSet {
+  id          String @id @default(cuid())
+  manualId    String
+  title       String
+  description String?
+  authorId    String
+  status      ChangeSetStatus @default(PENDING)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  author User @relation("ChangeSetAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  changes Change[]
+  versions Version[]
+  releaseSnapshots ReleaseSnapshot[]
+  
+  @@map("change_sets")
+}
+
+model Change {
+  id          String @id @default(cuid())
+  changeSetId String
+  entityType  EntityType
+  entityId    String
+  changeType  ChangeType
+  oldValue    Json?
+  newValue    Json?
+  diff        String? // Textual diff representation
+  createdAt   DateTime @default(now())
+  
+  // Relations
+  changeSet ChangeSet @relation(fields: [changeSetId], references: [id], onDelete: Cascade)
+  
+  @@map("changes")
+}
+
+model ReleaseSnapshot {
+  id             String @id @default(cuid())
+  manualId       String
+  changeSetId    String
+  version        String
+  contentSnapshot Json // Immutable snapshot of manual content
+  createdAt      DateTime @default(now())
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  changeSet ChangeSet @relation(fields: [changeSetId], references: [id], onDelete: Cascade)
+  
+  // Epic-03 Relations
+  readerBundles ReaderBundle[]
+  
+  @@map("release_snapshots")
+}
+
+model Template {
+  id            String @id @default(cuid())
+  organizationId String
+  name          String
+  description   String?
+  blocks        Json // Array of TipTap documents
+  smartBlocks   Json // Array of smart block definitions
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@map("templates")
+}
+
+model EditorSession {
+  id           String @id @default(cuid())
+  userId       String
+  sectionId    String
+  versionId    String
+  isActive     Boolean @default(true)
+  lastActivity DateTime @default(now())
+  createdAt    DateTime @default(now())
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  section Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, sectionId])
+  @@map("editor_sessions")
+}
+
+// Enums
+enum Role {
+  ADMIN
+  EDITOR
+  REVIEWER
+  READER
+}
+
+enum ManualStatus {
+  DRAFT
+  RELEASED
+}
+
+enum SectionStatus {
+  DRAFT
+  RELEASED
+}
+
+enum SmartBlockType {
+  LEP
+  MEL
+  ChangeLog
+  RevisionBar
+  CrossRef
+}
+
+enum EntityType {
+  MANUAL
+  CHAPTER
+  SECTION
+  BLOCK
+}
+
+enum ChangeType {
+  CREATE
+  UPDATE
+  DELETE
+  MERGE
+}
+
+enum ChangeSetStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  MERGED
+}
+
+// Epic-02: Configurable Review & Approval Models
+
+model WorkflowDefinition {
+  id             String @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  entityType     EntityType // Which entity this workflow applies to
+  stages         Json // Array of WorkflowStage objects
+  isActive       Boolean @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workflowInstances WorkflowInstance[]
+  
+  @@map("workflow_definitions")
+}
+
+model WorkflowInstance {
+  id                  String @id @default(cuid())
+  workflowDefinitionId String
+  entityType          EntityType
+  entityId            String
+  title               String
+  description         String?
+  initiatedByUserId   String
+  currentStageId      String?
+  status              WorkflowInstanceStatus @default(DRAFT)
+  priority            WorkflowPriority @default(MEDIUM)
+  metadata            Json? // Flexible metadata for workflow context
+  scheduledAt         DateTime?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  cancelledAt         DateTime?
+  cancelledByUserId   String?
+  rejectionReason     String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Relations
+  workflowDefinition WorkflowDefinition @relation(fields: [workflowDefinitionId], references: [id], onDelete: Cascade)
+  initiatedBy User @relation("WorkflowInstanceInitiatedBy", fields: [initiatedByUserId], references: [id], onDelete: Cascade)
+  cancelledBy User? @relation("WorkflowInstanceCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  tasks ApprovalTask[]
+  checklists Checklist[]
+  
+  @@map("workflow_instances")
+}
+
+model ApprovalTask {
+  id               String @id @default(cuid())
+  workflowInstanceId String
+  stageId          String
+  assignedToUserId String
+  entityType       EntityType
+  entityId         String
+  priority         WorkflowPriority @default(MEDIUM)
+  status           TaskStatus @default(PENDING)
+  dueAt            DateTime?
+  completedAt      DateTime?
+  completedByUserId String?
+  commentsCount    Int @default(0)
+  attachments      String[] // Array of attachment IDs
+  metadata         Json? // Flexible metadata for task context
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  workflowInstance WorkflowInstance @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  assignedTo User @relation(fields: [assignedToUserId], references: [id], onDelete: Cascade)
+  completedBy User? @relation("ApprovalTaskCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+  comments Comment[]
+  
+  @@map("approval_tasks")
+}
+
+model Comment {
+  id               String @id @default(cuid())
+  taskId           String
+  userId           String
+  content          String
+  type             CommentType @default(GENERAL)
+  isInternal       Boolean @default(false)
+  attachments      String[] // Array of attachment IDs
+  mentionedUserIds String[] // Array of mentioned user IDs for notifications
+  parentCommentId  String? // For threaded discussions
+  isResolved       Boolean @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  task ApprovalTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentComment Comment? @relation("CommentThread", fields: [parentCommentId], references: [id], onDelete: Cascade)
+  replies Comment[] @relation("CommentThread")
+  
+  @@map("comments")
+}
+
+model Checklist {
+  id               String @id @default(cuid())
+  taskId           String?
+  workflowInstanceId String?
+  title            String
+  description      String?
+  organizationId   String
+  type             ChecklistType @default(AUDIT)
+  templateId       String?
+  items            Json // Array of ChecklistItem objects
+  isComplete       Boolean @default(false)
+  completedAt      DateTime?
+  completedByUserId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  task ApprovalTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  workflowInstance WorkflowInstance? @relation(fields: [workflowInstanceId], references: [id], onDelete: SetNull)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  completedBy User? @relation("ChecklistCompletedBy", fields: [completedByUserId], references: [id], onDelete: SetNull)
+  
+  @@map("checklists")
+}
+
+model ChecklistTemplate {
+  id             String @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  type           ChecklistType @default(AUDIT)
+  isDefault      Boolean @default(false)
+  items          Json // Array of ChecklistItem objects (without task-specific fields)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@map("checklist_templates")
+}
+
+model Notification {
+  id           String @id @default(cuid())
+  userId       String
+  type         NotificationType
+  title        String
+  message      String
+  channels     NotificationChannel[] // Array of notification channels
+  entityType   EntityTypeNotification?
+  entityId     String?
+  isRead       Boolean @default(false)
+  readAt       DateTime?
+  scheduledFor DateTime? // For delayed/reminder notifications
+  deliveredAt  DateTime?
+  metadata     Json? // Flexible notification metadata
+  createdAt    DateTime @default(now())
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("notifications")
+}
+
+model ApprovalSignature {
+  id               String @id @default(cuid())
+  workflowInstanceId String
+  signerName       String
+  signerRole       String
+  signatureDate    DateTime
+  signaturePath    String? // Path to signature file or hash
+  signaturePayload Json? // Encrypted signature data
+  isValid          Boolean @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  @@map("approval_signatures")
+}
+
+// Epic-02 Enums
+enum WorkflowInstanceStatus {
+  DRAFT
+  IN_PROGRESS
+  APPROVED
+  REJECTED
+  SUSPENDED
+  CANCELLED
+  COMPLETED
+}
+
+enum TaskStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DELEGATED
+  SUSPENDED
+  COMPLETED
+}
+
+enum CommentType {
+  GENERAL
+  APPROVAL_REASON
+  REJECTION_REASON
+  DELEGATION_NOTE
+}
+
+enum ChecklistType {
+  AUDIT
+  REVIEW
+  COMPLIANCE
+  CUSTOM
+}
+
+enum WorkflowPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_DUE_SOON
+  TASK_OVERDUE
+  COMMENT_ADDED
+  WORKFLOW_STATUS_CHANGE
+  APPROVAL_REQUEST
+  REJECTION_WITH_COMMENTS
+  MENTION
+}
+
+enum NotificationChannel {
+  EMAIL
+  WEB_PUSH
+  IN_APP
+  SLACK
+}
+
+enum EntityTypeNotification {
+  TASK
+  WORKFLOW_INSTANCE
+  COMMENT
+}
+
+// Epic-03: Distribution & Reader Models
+
+model ReaderBundle {
+  id               String @id @default(cuid())
+  manualId         String
+  releaseSnapshotId String
+  version          String
+  bundleUrl        String // CDN URL to static JSON bundle
+  bundleSize       Int    // Size in bytes
+  createdAt        DateTime @default(now())
+  expiresAt        DateTime? // For time-limited access
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  releaseSnapshot ReleaseSnapshot @relation(fields: [releaseSnapshotId], references: [id], onDelete: Cascade)
+  
+  @@map("reader_bundles")
+}
+
+model AccessPermission {
+  id          String @id @default(cuid())
+  userId      String
+  manualId    String
+  bundleId    String
+  permission  Permission
+  grantedBy   String
+  grantedAt   DateTime @default(now())
+  expiresAt   DateTime?
+  metadata    Json? // Flexible metadata
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, manualId, bundleId])
+  @@map("access_permissions")
+}
+
+model SearchIndex {
+  id            String @id @default(cuid())
+  manualId      String
+  bundleId      String
+  searchableText String
+  indexes       Json // Structured index data
+  createdAt     DateTime @default(now())
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@unique([manualId, bundleId])
+  @@map("search_indexes")
+}
+
+model Annotation {
+  id          String @id @default(cuid())
+  userId      String
+  manualId    String
+  bundleId    String
+  chapterId   String
+  sectionId   String
+  blockId     String
+  selector    String // CSS selector or text range
+  type        AnnotationType
+  content     String
+  color       String? // For highlights
+  isPrivate   Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@map("annotations")
+}
+
+model ReaderSession {
+  id                String @id @default(cuid())
+  userId            String
+  manualId          String
+  bundleId          String
+  currentChapterId  String?
+  currentSectionId  String?
+  readingProgress   Int @default(0) // Percentage (0-100)
+  readingTimeSeconds Int @default(0)
+  lastAccessedAt    DateTime @default(now())
+  bookmarks         Json // Array of bookmark objects
+  annotations        String[] // Annotation IDs
+  notes              String[] // Note IDs
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, manualId, bundleId])
+  @@map("reader_session")
+}
+
+model SuggestEdit {
+  id               String @id @default(cuid())
+  userId           String
+  manualId         String
+  bundleId         String
+  chapterId        String
+  sectionId        String
+  blockId          String
+  selector         String // Text selection within block
+  currentText      String
+  suggestedText    String
+  reason           String
+  priority         SuggestEditPriority @default(MEDIUM)
+  status           SuggestEditStatus @default(PENDING)
+  createdTaskId    String? // Link to editor task
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  reviewerComments String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@map("suggest_edits")
+}
+
+model RevisionBar {
+  id           String @id @default(cuid())
+  manualId     String
+  bundleId     String
+  chapterId    String
+  sectionId    String
+  blockId      String
+  revisionType RevisionType
+  oldVersion   String?
+  newVersion   String
+  description  String
+  authorName   String
+  changedAt    DateTime
+  createdAt    DateTime @default(now())
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@map("revision_bars")
+}
+
+model OfflineCache {
+  id          String @id @default(cuid())
+  userId      String
+  bundleId    String
+  cacheKey    String
+  data        Json // Cached bundle data
+  cachedAt    DateTime @default(now())
+  expiresAt   DateTime
+  version     String
+  checksum    String
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, bundleId])
+  @@map("offline_cache")
+}
+
+model FeatureFlag {
+  id             String @id @default(cuid())
+  name           String
+  organizationId String
+  enabled        Boolean @default(false)
+  description    String?
+  conditions     Json // Array of condition objects
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@map("feature_flags")
+}
+
+model OperationallyCriticalFlag {
+  id                    String @id @default(cuid())
+  manualId              String
+  bundleId              String
+  isCritical            Boolean @default(false)
+  requiredRoles         String[] // Array of required roles
+  accessMethod          AccessMethod
+  distributionChannels  String[] // Distribution channel identifiers
+  versionPinRequired    Boolean @default(false)
+  auditLoggingRequired  Boolean @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@unique([manualId, bundleId])
+  @@map("operationally_critical_flags")
+}
+
+model ReaderAnalytics {
+  id         String @id @default(cuid())
+  userId     String
+  manualId   String
+  bundleId   String
+  event      ReaderEventType
+  metadata   Json? // Additional event metadata
+  timestamp  DateTime @default(now())
+  sessionId  String
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  readerBundle ReaderBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  
+  @@map("reader_analytics")
+}
+
+// Epic-03 Enums
+
+enum Permission {
+  READ
+  ANNOTATE
+  SUGGEST_EDIT
+  ADMIN
+}
+
+enum AnnotationType {
+  HIGHLIGHT
+  NOTE
+  COMMENT
+  QUESTION
+  WARNING
+}
+
+enum SuggestEditPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum SuggestEditStatus {
+  PENDING
+  REVIEWED
+  APPROVED
+  REJECTED
+  MIGRATED
+}
+
+enum RevisionType {
+  NEW
+  UPDATED
+  MODIFIED
+  DELETED
+}
+
+enum AccessMethod {
+  CDN
+  EMAIL
+  FTP
+  OFFLINE_DOWNLOAD
+}
+
+enum ReaderEventType {
+  OPEN
+  SEARCH
+  ANNOTATE
+  SUGGEST_EDIT
+  BOOKMARK
+  DOWNLOAD
+}
+
+// Epic-04: Compliance Monitoring Models
+
+model RegulationLibrary {
+  id               String @id @default(cuid())
+  source           String // e.g., 'ICAO', 'EASA', 'FAA', 'EU-OPS'
+  region           String // e.g., 'EU', 'US', 'GLOBAL', 'NORTH_ATLANTIC'
+  title            String
+  description      String?
+  version          String
+  effectiveDate    DateTime
+  expiryDate       DateTime?
+  url              String?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  regulationItems RegulationItem[]
+  complianceLinks ComplianceLink[]
+  impactAnalyses ImpactAnalysis[]
+  auditChecklists AuditChecklist[]
+  libraryUpdateJobs LibraryUpdateJob[]
+  
+  @@map("regulation_libraries")
+}
+
+model RegulationItem {
+  id                String @id @default(cuid())
+  regulationLibraryId String
+  regulationType    RegulationType
+  reference         String // e.g., 'AMC1.OP.MLR.100', 'FAR 121.101'
+  title             String
+  content           String
+  category          RegulationCategory
+  priority          RegulationPriority
+  applicability     Json // Aircraft types, operators, routes, conditions
+  relatedRegulations String[] // References to other regulation IDs
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  regulationLibrary RegulationLibrary @relation(fields: [regulationLibraryId], references: [id], onDelete: Cascade)
+  complianceLinks ComplianceLink[]
+  auditChecklistItems AuditChecklistItem[]
+  complianceAlerts ComplianceAlert[]
+  
+  @@map("regulation_items")
+  @@unique([regulationLibraryId, reference])
+}
+
+model ComplianceLink {
+  id               String @id @default(cuid())
+  manualId         String
+  chapterId       String
+  sectionId        String
+  blockId          String? // Optional paragraph-level linking
+  regulationItemId String
+  regulationLibraryId String
+  linkType         ComplianceLinkType
+  relationship     ComplianceRelationship
+  confidence       Int // AI confidence score (0-100)
+  createdBy        String
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  status           ComplianceLinkStatus @default(DRAFT)
+  notes            String?
+  evidence         String[] // Supporting documentation URLs
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  regulationItem RegulationItem @relation(fields: [regulationItemId], references: [id], onDelete: Cascade)
+  regulationLibrary RegulationLibrary @relation(fields: [regulationLibraryId], references: [id], onDelete: Cascade)
+  auditChecklistItem AuditChecklistItem?
+  complianceAlerts ComplianceAlert[]
+  
+  @@map("compliance_links")
+}
+
+model ComplianceAlert {
+  id                     String @id @default(cuid())
+  organizationId         String
+  alertType              ComplianceAlertType
+  severity               ComplianceSeverity
+  title                  String
+  description            String
+  affectedManualIds      String[]
+  affectedComplianceLinks String[]
+  regulationItemId       String?
+  dueDate                DateTime?
+  status                 ComplianceAlertStatus @default(ACTIVE)
+  assignedTo             String?
+  acknowledgedBy         String?
+  acknowledgedAt         DateTime?
+  resolvedBy             String?
+  resolvedAt             DateTime?
+  resolutionNotes        String?
+  metadata               Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  regulationItem RegulationItem @relation(fields: [regulationItemId], references: [id], onDelete: Cascade)
+  complianceLinks ComplianceLink[]
+  
+  @@map("compliance_alerts")
+}
+
+model AuditChecklist {
+  id                  String @id @default(cuid())
+  organizationId      String
+  manualId            String?
+  title               String
+  description         String?
+  auditType           AuditType
+  auditScope          AuditScope
+  regulationLibraryIds String[]
+  coverageRegions     String[]
+  scheduledDate       DateTime
+  completionDate      DateTime?
+  auditorId           String?
+  auditorName         String?
+  auditStatus         AuditStatus @default(SCHEDULED)
+  statistics          Json // Total, completed, failed items etc.
+  metadata            Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items AuditChecklistItem[]
+  regulationLibs RegulationLibrary[]
+  
+  @@map("audit_checklists")
+}
+
+model AuditChecklistItem {
+  id                 String @id @default(cuid())
+  checklistId        String
+  regulationItemId   String
+  complianceLinkId   String?
+  question           String
+  description        String?
+  applicableManualIds String[]
+  evidenceRequired    String[]
+  checkType          CheckType
+  priority           AuditPriority
+  status             AuditItemStatus @default(NOT_STARTED)
+  checkedBy          String?
+  checkedAt          DateTime?
+  findings           String?
+  recommendations    String?
+  attachments        String[]
+  metadata           Json?
+  
+  // Relations
+  checklist AuditChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  regulationItem RegulationItem @relation(fields: [regulationItemId], references: [id], onDelete: Cascade)
+  complianceLink ComplianceLink @relation(fields: [complianceLinkId], references: [id])
+  
+  @@map("audit_checklist_items")
+}
+
+model ImpactAnalysis {
+  id                  String @id @default(cuid())
+  triggerType         ImpactTriggerType
+  regulationLibraryId String
+  oldVersion          String?
+  newVersion          String
+  analysisScope       Json // Organization IDs, manual IDs, regulation item IDs
+  results             Json // Affected paragraphs, new/modified requirements, risk assessment
+  recommendations      Json // Priority actions, responsible parties, deadlines
+  automatedChecklistId String?
+  status              ImpactAnalysisStatus @default(PENDING)
+  analyzedBy          String?
+  reviewedBy          String?
+  reviewedAt          DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Relations
+  regulationLibrary RegulationLibrary @relation(fields: [regulationLibraryId], references: [id], onDelete: Cascade)
+  
+  @@map("impact_analyses")
+}
+
+model CoverageAnalysis {
+  id               String @id @default(cuid())
+  organizationId   String
+  manualId         String
+  analysisDate     DateTime @default(now())
+  scope            Json // Total vs linked paragraphs
+  byChapter        Json // Coverage by chapter
+  byRegulation     Json // Coverage by regulation library
+  recommendations  Json // Suggested regulations for unlinked paragraphs
+  metadata         Json?
+  
+  @@map("coverage_analyses")
+}
+
+model LibraryUpdateJob {
+  id                    String @id @default(cuid())
+  organizationId        String
+  regulationLibraryId   String
+  updateType            UpdateType
+  oldVersion            String?
+  newVersion           String
+  description          String
+  changes              Json // Added, modified, deleted, renumbered
+  effectiveDate        DateTime
+  implementationDeadline DateTime?
+  notificationDate     DateTime
+  status               JobStatus @default(PENDING)
+  processingStartedAt  DateTime?
+  processingCompletedAt DateTime?
+  errorMessage         String?
+  impactAnalysisId     String?
+  generatedAlertIds    String[]
+  generatedChecklistIds String[]
+  metadata             Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  regulationLibrary RegulationLibrary @relation(fields: [regulationLibraryId], references: [id], onDelete: Cascade)
+  
+  @@map("library_update_jobs")
+}
+
+model ComplianceAnalytics {
+  id             String @id @default(cuid())
+  organizationId String
+  userId         String
+  action         ComplianceAction
+  targetId       String // ComplianceLink, ComplianceAlert, or AuditChecklist ID
+  metadata       Json?
+  timestamp      DateTime @default(now())
+  
+  @@map("compliance_analytics")
+}
+
+// Epic-04 Enums
+
+enum RegulationType {
+  ARTICLE
+  PARAGRAPH
+  SECTION
+  ANNEX
+  APPENDIX
+  AMC
+  GM
+  OTHER
+}
+
+enum RegulationCategory {
+  OPERATIONAL
+  SAFETY
+  MAINTENANCE
+  TRAINING
+  EQUIPMENT
+  DOCUMENTATION
+  OTHER
+}
+
+enum RegulationPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum ComplianceLinkType {
+  DIRECT
+  INDIRECT
+  REQUIREMENT
+  REFERENCE
+  IMPLEMENTATION
+}
+
+enum ComplianceRelationship {
+  IMPLEMENTS
+  REFERENCES
+  COMPLIES_WITH
+  CONTRAVENES
+  RELATED_TO
+}
+
+enum ComplianceLinkStatus {
+  DRAFT
+  ACTIVE
+  QUESTIONED
+  INVALID
+}
+
+enum ComplianceAlertType {
+  REGULATION_UPDATE
+  COMPLIANCE_GAP
+  EXPIRING_REGULATION
+  NEW_REQUIREMENT
+  RISK_ASSESSMENT
+}
+
+enum ComplianceSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+enum ComplianceAlertStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  MITIGATED
+  RESOLVED
+  DISMISSED
+}
+
+enum AuditType {
+  REGULATORY
+  COMPLIANCE
+  SAFETY
+  OPERATIONAL
+  MAINTENANCE
+  TRAINING
+}
+
+enum AuditScope {
+  MANUAL
+  OPERATIONS
+  SAFETY
+  MAINTENANCE
+  TRAINING
+  COMPREHENSIVE
+}
+
+enum AuditStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum CheckType {
+  INSPECTION
+  VERIFICATION
+  DOCUMENTATION
+  PROCEDURAL
+  TRAINING
+}
+
+enum AuditPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum AuditItemStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  N_A
+}
+
+enum ImpactTriggerType {
+  REGULATION_UPDATE
+  MANUAL_CHANGE
+  SCHEDULED_ASSESSMENT
+  NON_CONFORMITY
+}
+
+enum ImpactAnalysisStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  REQUIRES_REVIEW
+}
+
+enum UpdateType {
+  MAJOR
+  MINOR
+  PATCH
+  NEW_REGULATION
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ComplianceAction {
+  LINK_CREATED
+  LINK_UPDATED
+  LINK_DELETED
+  ALERT_VIEWED
+  CHECKLIST_ACCESSED
+  IMPACT_ANALYZED
+}
+
+// Epic-05: AI-driven Semantic Search Models
+
+model IndexingJob {
+  id            String         @id @default(cuid())
+  type          IndexingType
+  status        JobStatus
+  progress      Json // { totalItems, processedItems, failedItems, currentPhase }
+  triggeredBy   String
+  startedAt     DateTime?
+  completedAt   DateTime?
+  errorMessage  String?
+  metadata      Json?
+
+  @@map("indexing_jobs")
+}
+
+model SearchAnalytics {
+  id             String           @id @default(cuid())
+  query          String
+  userId         String?
+  sessionId      String?
+  responseTimeMs Int
+  resultCount    Int
+  resultScores   Float[]
+  clickCount     Int              @default(0)
+  outcome        SearchOutcome     @default(NO_CLICK)
+  userAgent      String?
+  timestamp      DateTime         @default(now())
+
+  @@map("search_analytics")
+  @@index([query])
+  @@index([timestamp])
+  @@index([userId])
+}
+
+// Enums for Epic-05
+
+enum ContentType {
+  PARAGRAPH
+  SECTION
+  CHAPTER
+}
+
+enum IndexingType {
+  FULL_RECREATE
+  INCREMENTAL
+  MANUAL_TRIGGER
+}
+
+enum SearchOutcome {
+  SATISFIED
+  DISSAISFIED
+  NO_CLICK
+}
+
+// Epic-06: XML Ingest and Authoring Models
+
+model XmlDocument {
+  id              String              @id @default(cuid())
+  fileName        String
+  originalXml     String
+  parsedXml       Json                @default("{}")
+  xsdSchema       String?
+  validationErrors Json               @default("[]")
+  status          XmlDocumentStatus   @default(PENDING)
+  organizationId  String
+  uploadedBy      String
+  uploadedAt      DateTime            @default(now())
+  processedAt     DateTime?
+
+  // Relations
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedUser    User               @relation(fields: [uploadedBy], references: [id])
+  
+  xmlMappings     XmlMapping[]
+  xmlExportConfigurations XmlExportConfiguration[]
+  xmlDiffs        XmlDiff[]          @relation("XmlDiffSource")
+  xmlDiffsTarget  XmlDiff[]          @relation("XmlDiffTarget")
+
+  @@map("xml_documents")
+  @@index([organizationId])
+  @@index([status])
+  @@index([uploadedAt])
+}
+
+model XmlMapping {
+  id                  String          @id @default(cuid())
+  xmlDocumentId       String
+  xmlElementPath      String          // e.g., "Manual.Chapter.Section.Block"
+  manualId            String?
+  chapterId           String?
+  sectionId           String?
+  blockId             String?
+  mappingType         XmlMappingType
+  fieldMappings       Json            @default("{}")
+  transformationRules Json            @default("[]")
+  isValidated         Boolean         @default(false)
+  lastSyncedAt        DateTime?
+  syncStatus          XmlSyncStatus   @default(IN_SYNC)
+
+  // Relations
+  xmlDocument         XmlDocument     @relation(fields: [xmlDocumentId], references: [id], onDelete: Cascade)
+  manual              Manual?         @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  chapter             Chapter?        @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  section             Section?        @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  block               Block?          @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  @@map("xml_mappings")
+  @@index([xmlDocumentId])
+  @@index([manualId])
+  @@index([syncStatus])
+}
+
+model XmlExportConfiguration {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?
+  organizationId String
+  templateXml   String
+  xsdSchema     String
+  fieldMappings Json     @default("{}")
+  exportRules   Json     @default("[]")
+  createdAt     DateTime @default(now())
+  createdBy     String
+  isActive      Boolean  @default(true)
+
+  // Relations
+  organization  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdUser   User         @relation(fields: [createdBy], references: [id])
+  
+  xmlDocument   XmlDocument? @relation(fields: [id], references: [id])
+
+  @@unique([organizationId, name])
+  @@map("xml_export_configurations")
+}
+
+model XmlDiff {
+  id                      String       @id @default(cuid())
+  sourceXmlDocumentId     String
+  targetXmlDocumentId     String
+  diffType                XmlDiffType
+  differences             Json         @default("[]")
+  summary                 Json         @default("{}")
+  createdAt               DateTime     @default(now())
+  createdBy               String
+
+  // Relations
+  sourceXmlDocument       XmlDocument  @relation("XmlDiffSource", fields: [sourceXmlDocumentId], references: [id])
+  targetXmlDocument       XmlDocument  @relation("XmlDiffTarget", fields: [targetXmlDocumentId], references: [id])
+  createdUser             User         @relation(fields: [createdBy], references: [id])
+
+  @@map("xml_diffs")
+  @@index([diffType])
+  @@index([createdAt])
+}
+
+model XmlProcessingJob {
+  id          String   @id @default(cuid())
+  type        XmlJobType
+  status      JobStatus
+  progress    Json     @default("{}")
+  startedAt   DateTime?
+  completedAt DateTime?
+  errorMessage String?
+
+  @@map("xml_processing_jobs")
+  @@index([type])
+  @@index([status])
+}
+
+// Enums for Epic-06
+
+enum XmlDocumentStatus {
+  PENDING
+  VALIDATION_SUCCESS
+  VALIDATION_FAILED
+  MAPPED
+  FAILED
+}
+
+enum XmlMappingType {
+  MANUAL
+  CHAPTER
+  SECTION
+  BLOCK
+  METADATA
+}
+
+enum XmlSyncStatus {
+  IN_SYNC
+  MANUAL_MODIFIED
+  XML_MODIFIED
+  CONFLICTED
+}
+
+enum XmlDiffType {
+  IMPORT_EXPORT
+  VERSION_COMPARISON
+  MANUAL_XML_SYNC
+}
+
+enum XmlJobType {
+  IMPORT
+  EXPORT
+  DIFF_GENERATION
+  VALIDATION
+}
+
+// Epic-07: EFB APP & DEVICE CONTROLS
+
+model Device {
+  id               String @id @default(cuid())
+  organizationId   String
+  userId           String? // Device owner
+  deviceModel      DeviceModel
+  platform         DevicePlatform
+  osVersion        String
+  appVersion       String
+  deviceName       String
+  deviceId         String @unique // Unique device identifier
+  hardwareId       String @unique // Hardware UUID/serial
+  status           DeviceStatus @default(PENDING_ENROLLMENT)
+  lastSyncAt       DateTime?
+  lastOnlineAt     DateTime?
+  enrollmentDate   DateTime @default(now())
+  installedPolicies String[] // Policy IDs array
+  securityFlags    Json @default("{}") // Security flags object
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User? @relation("DeviceUser", fields: [userId], references: [id], onDelete: SetNull)
+  
+  // EFB relations
+  offlineCaches   OfflineCache[]
+  cacheChunks     CacheChunk[]
+  cacheManifests  CacheManifest[]
+  syncJobs        SyncJob[]
+  deviceSessions  DeviceSession[]
+  deviceAnalytics DeviceAnalytics[]
+  remoteCommands  RemoteCommand[]
+  
+  @@map("devices")
+  @@index([organizationId])
+  @@index([userId])
+  @@index([deviceId])
+  @@index([status])
+}
+
+model DevicePolicy {
+  id            String @id @default(cuid())
+  organizationId String
+  createdBy     String
+  name          String
+  description   String?
+  type          PolicyType
+  isActive      Boolean @default(true)
+  priority      Int @default(0) // Higher number = higher priority
+  conditions    Json @default("{}") // Policy conditions object
+  settings      Json @default("{}") // Policy-specific settings
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdByUser User @relation("PolicyCreatedBy", fields: [createdBy], references: [id], onDelete: Cascade)
+  
+  @@map("device_policies")
+  @@index([organizationId])
+  @@index([type])
+  @@index([isActive])
+}
+
+
+model CacheManifest {
+  id              String @id @default(cuid())
+  deviceId        String
+  readerBundleId  String
+  bundleVersion   String
+  chunkCount      Int
+  totalSizeBytes  Int
+  checksum        String // Manifest checksum
+  isCompressed    Boolean @default(true)
+  encryptionKeyId String? // For encrypted chunks
+  expiresAt       DateTime?
+  lastModified    DateTime @default(now())
+  createdAt       DateTime @default(now())
+  
+  // Relations
+  device      Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  offlineCache OfflineCache?
+  
+  @@unique([deviceId, readerBundleId])
+  @@map("cache_manifests")
+  @@index([deviceId])
+  @@index([readerBundleId])
+}
+
+model CacheChunk {
+  id              String @id @default(cuid())
+  deviceId        String
+  readerBundleId  String
+  chunkIndex       Int
+  chunkPath        String // S3/local path
+  chunkChecksum    String // SHA-256 hash
+  chunkSizeBytes   Int
+  status           ChunkStatus @default(AVAILABLE)
+  downloadedAt     DateTime?
+  expiresAt        DateTime?
+  error            String?
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  @@unique([deviceId, readerBundleId, chunkIndex])
+  @@map("cache_chunks")
+  @@index([deviceId])
+  @@index([readerBundleId])
+  @@index([status])
+}
+
+model SyncJob {
+  id            String @id @default(cuid())
+  deviceId      String
+  organizationId String
+  initiatedBy   String // User ID
+  type          SyncJobType
+  status        SyncStatus @default(PENDING)
+  progress      Json @default("{\"totalItems\": 0, \"completedItems\": 0, \"failedItems\": 0, \"skippedItems\": 0, \"percentage\": 0}")
+  settings      Json @default("{}") // Job-specific settings
+  errors        Json @default("[]") // Array of error objects
+  startedAt     DateTime?
+  completedAt   DateTime?
+  cancelledAt   DateTime?
+  expiry        DateTime? // Job expiration
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  
+  // Relations
+  device  Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  initiatedByUser User @relation("SyncInitiatedBy", fields: [initiatedBy], references: [id], onDelete: Cascade)
+  
+  @@map("sync_jobs")
+  @@index([deviceId])
+  @@index([status])
+  @@index([type])
+}
+
+model DeviceSession {
+  id              String @id @default(cuid())
+  deviceId        String
+  userId          String
+  sessionToken    String @unique
+  isActive        Boolean @default(true)
+  lastActivityAt  DateTime @default(now())
+  geoLocation     Json? // Latitude, longitude, accuracy, altitude
+  appContext      Json @default("{}") // Current app context
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  
+  // Relations
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  user User @relation("DeviceSessionUser", fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("device_sessions")
+  @@index([deviceId])
+  @@index([userId])
+  @@index([sessionToken])
+}
+
+model DeviceAnalytics {
+  id            String @id @default(cuid())
+  deviceId      String
+  organizationId String
+  userId        String
+  action        DeviceAnalyticsAction
+  targetId      String? // Manual ID, search query, etc.
+  metadata      Json?
+  timestamp     DateTime @default(now())
+  
+  // Relations
+  device       Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user User @relation("DeviceAnalyticsUser", fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("device_analytics")
+  @@index([deviceId])
+  @@index([organizationId])
+  @@index([action])
+  @@index([timestamp])
+}
+
+model RemoteCommand {
+  id              String @id @default(cuid())
+  deviceId        String
+  command         RemoteCommandType
+  payload         Json?
+  status          RemoteCommandStatus @default(PENDING)
+  createdAt       DateTime @default(now())
+  acknowledgedAt  DateTime?
+  completedAt     DateTime?
+  error           String?
+  
+  // Relations
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+  @@map("remote_commands")
+  @@index([deviceId])
+  @@index([status])
+}
+
+// Epic-07 Enums
+
+enum DeviceModel {
+  iPad
+  iPad_Pro
+  iPhone
+  Android_Tablet
+  Android_Phone
+  Windows_Tablet
+}
+
+enum DevicePlatform {
+  iOS
+  Android
+  Windows
+}
+
+enum DeviceStatus {
+  ACTIVE
+  PENDING_ENROLLMENT
+  SUSPENDED
+  DECOMMISSIONED
+}
+
+enum DeviceNetworkStatus {
+  ONLINE
+  OFFLINE
+  CONNECTING
+}
+
+enum PolicyType {
+  MANUAL_PINNING
+  CACHE_SYNC
+  SECURITY
+  FEATURE_FLAGS
+}
+
+enum ChunkStatus {
+  AVAILABLE
+  DOWNLOADING
+  COMPLETED
+  ERROR
+  EXPIRED
+}
+
+enum SyncStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum SyncJobType {
+  FULL_SYNC
+  INCREMENTAL_SYNC
+  POLICY_SYNC
+  CACHE_INVALIDATION
+}
+
+enum DeviceAnalyticsAction {
+  LOGIN
+  LOGOUT
+  MANUAL_OPEN
+  SEARCH_PERFORMED
+  OFFLINE_STARTED
+  OFFLINE_ENDED
+  SYNC_STARTED
+  SYNC_COMPLETED
+  CACHE_ACCESSED
+  HIGHLIGHT_ADDED
+  NOTES_ADDED
+  POLICY_UPDATED
+}
+
+enum RemoteCommandType {
+  FORCE_SYNC
+  CACHE_INVALIDATE
+  POLICY_REFRESH
+  REMOTE_WIPE
+  RESTART_APP
+}
+
+enum RemoteCommandStatus {
+  PENDING
+  SENT
+  ACKNOWLEDGED
+  COMPLETED
+  FAILED
+}
+
+// Epic-08: USER/ADMIN MANAGEMENT & AUDIT
+
+model UserSession {
+  id                String @id @default(cuid())
+  userId            String
+  sessionId         String @unique
+  clientId          String
+  issuer            OIDCIssuer
+  accessToken       String? // Encrypted/stored securely
+  refreshToken      String? // Encrypted/stored securely
+  idToken           String? // Encrypted/stored securely
+  organizationContext String // JSON of current organization context
+  permissions       String[] // Array of current permissions
+  loginTime         DateTime @default(now())
+  lastActivity      DateTime @default(now())
+  expiresAt         DateTime
+  isActive          Boolean @default(true)
+  ipAddress         String?
+  userAgent         String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@map("user_sessions")
+  @@index([userId])
+  @@index([sessionId])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id               String @id @default(cuid())
+  requestId        String // Unique request identifier
+  correlationId    String? // For tracing across services
+  
+  // Who
+  userId           String? // null for system events
+  userEmail        String?
+  userRole         String?
+  organizationId   String?
+  clientId         String? // OIDC client
+  
+  // What
+  eventType        AuditEventType
+  action           String // Specific action taken
+  resource         String // Resource accessed/modified
+  resourceId       String? // ID of the resource
+  resourceType     ResourceType?
+  
+  // When
+  timestamp        DateTime @default(now())
+  duration         Int? // Milliseconds
+  
+  // Where
+  ipAddress        String?
+  userAgent        String?
+  endpoint         String?
+  
+  // Meta
+  severity         AuditSeverity @default(MEDIUM)
+  
+  // Data
+  beforeData       Json? // State before change
+  afterData        Json? // State after change
+  beforeHash       String? // Hash of before state
+  afterHash        String? // Hash of after state
+  previousHash     String? // Previous event hash (integrity chain)
+  
+  // Context
+  tags             String[]
+  metadata         Json?
+  
+  // Integrity
+  integrityHash    String // Hash of entire event for chain verification
+  
+  // Aviation compliance fields (Epic-10)
+  complianceMetadata  String?   // ComplianceMetadataSchema JSON
+  regulatoryFramework String?   // EASA, FAA, ICAO, etc.
+  certificationLevel  AuditCertificationLevel?
+  effectiveDate       DateTime?
+  retentionPeriodDays Int?
+  documentSource      AuditDocumentSource?
+  
+  // Relations
+  organization     Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  user             User? @relation("AuditLogUser", fields: [userId], references: [id], onDelete: SetNull)
+  
+  @@map("audit_logs")
+  @@index([requestId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([timestamp])
+  @@index([eventType])
+  @@index([severity])
+  @@index([previousHash])
+  @@index([regulatoryFramework])
+  @@index([certificationLevel])
+  @@index([integrityHash])
+  @@index([complianceMetadata])
+}
+
+model SyncConflict {
+  id                  String @id @default(cuid())
+  entityType          SyncConflictEntityType
+  entityId            String
+  conflictType        SyncConflictType
+  serverData          String // JSON string
+  clientData          String // JSON string
+  resolutionStrategy  SyncConflictStrategy
+  status              SyncConflictStatus @default(PENDING_REVIEW)
+  detectedAt          DateTime @default(now())
+  detectedBy          String
+  resolvedAt          DateTime?
+  resolvedBy          String?
+  resolutionNotes     String?
+  metadata            Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  @@map("sync_conflicts")
+  @@index([entityType])
+  @@index([entityId])
+  @@index([status])
+  @@index([detectedAt])
+  @@index([conflictType])
+}
+
+enum SyncConflictEntityType {
+  HIGHLIGHT
+  NOTE
+  ANNOTATION
+  MANUAL
+  CHAPTER
+  SECTION
+}
+
+enum SyncConflictType {
+  SEMANTIC
+  TEMPORAL
+  CONTENT
+}
+
+enum SyncConflictStrategy {
+  SERVER_WINS
+  CLIENT_WINS
+  MANUAL_MERGE
+  TIMESTAMP_WINS
+}
+
+enum SyncConflictStatus {
+  PENDING_REVIEW
+  RESOLVED
+  ESCALATED
+  DISMISSED
+}
+
+model PermissionMatrix {
+  id             String @id @default(cuid())
+  organizationId String
+  role           Role
+  permissions    BigInt // Bitmask of permissions
+  limitations    String[] // Array of limitations
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@unique([organizationId, role])
+  @@map("permission_matrices")
+  @@index([organizationId])
+  @@index([role])
+}
+
+model RoleChangeRequest {
+  id                String @id @default(cuid())
+  userId            String
+  organizationId    String
+  currentRole       Role
+  requestedRole     Role
+  reason            String?
+  requestedBy       String // Current user requesting the change
+  status            RoleChangeStatus @default(PENDING)
+  reviewedBy        String? // Admin who reviewed
+  reviewedAt        DateTime?
+  reviewNotes       String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  user User @relation("RoleChangeRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation("RoleChangeRequestOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  requester User @relation("RoleChangeRequestRequester", fields: [requestedBy], references: [id], onDelete: Cascade)
+  reviewer User? @relation("RoleChangeRequestReviewer", fields: [reviewedBy], references: [id], onDelete: SetNull)
+  
+  @@map("role_change_requests")
+  @@index([userId])
+  @@index([organizationId])
+  @@index([status])
+}
+
+model OIDCClient {
+  id                String @id @default(cuid())
+  organizationId    String
+  name              String
+  clientId          String @unique
+  clientSecret      String // Encrypted
+  issuer            OIDCIssuer
+  redirectUris      String[] // Array of allowed redirect URIs
+  scopes            String[] // Array of allowed scopes
+  isActive          Boolean @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation("OIDCClientOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@map("oidc_clients")
+  @@index([organizationId])
+  @@index([clientId])
+}
+
+// Epic-08 Enums
+
+enum OIDCIssuer {
+  Auth0
+  Entra
+  Keycloak
+  Custom
+}
+
+enum AuditEventType {
+  AUTHENTICATION
+  AUTHORIZATION
+  DATA_ACCESS
+  DATA_MODIFICATION
+  DATA_DELETION
+  PERMISSION_CHANGE
+  ROLE_CHANGE
+  ORGANIZATION_CHANGE
+  SECURITY_EVENT
+  SYSTEM_EVENT
+}
+
+enum AuditSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ResourceType {
+  Manual
+  Chapter
+  Section
+  User
+  Organization
+  Device
+  Workflow
+  Compliance
+}
+
+enum RoleChangeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+// Update existing enums for Epic-08
+
+// Epic-09: ADD-ON STORE
+
+model Addon {
+  id               String @id @default(cuid())
+  name             String @unique
+  slug             String @unique
+  description      String
+  longDescription  String? @db.Text
+  version          String
+  author           String
+  authorEmail      String
+  authorWebsite    String?
+  
+  // Classification
+  type             AddonType
+  status           AddonStatus @default(DRAFT)
+  
+  // Content
+  iconUrl          String?
+  screenshots      String[] // Array of URLs
+  documentation    String? @db.Text
+  readme           String? @db.Text
+  
+  // Technical
+  minVersion       String?
+  maxVersion       String?
+  dependencies     String[] // Array of addon IDs
+  permissions      String[] // Required permissions
+  hooks            HookType[] // Supported hooks
+  
+  // Analytics
+  downloadCount    Int @default(0)
+  rating           Float?
+  reviewCount      Int @default(0)
+  
+  // Metadata
+  tags             String[]
+  categories       String[]
+  
+  // Timestamps
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  publishedAt      DateTime?
+  
+  // Relations
+  installations    Installation[]
+  licenses         License[]
+  reviews          AddonReview[]
+  pricingTiers     AddonPricingTier[]
+  analytics        AddonAnalytics[]
+  
+  @@map("addons")
+  @@index([type])
+  @@index([status])
+  @@index([rating])
+  @@index([downloadCount])
+}
+
+model AddonPricingTier {
+  id           String @id @default(cuid())
+  addonId      String
+  tier         LicenseTier
+  price        Float
+  currency     String @default("USD")
+  billingPeriod BillingPeriod @default(MONTHLY)
+  features     String[] // Array of feature descriptions
+  trialDays    Int? // Optional trial period
+  
+  // Relations
+  addon        Addon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+  
+  @@unique([addonId, tier])
+  @@map("addon_pricing_tiers")
+  @@index([tier])
+}
+
+model License {
+  id               String @id @default(cuid())
+  addonId          String
+  organizationId   String
+  tier             LicenseTier
+  
+  // Seating
+  seatsPurchased   Int
+  seatsUsed        Int @default(0)
+  maxConcurrentUsers Int?
+  
+  // Validity
+  startDate        DateTime
+  endDate          DateTime? // null for perpetual licenses
+  isActive         Boolean @default(true)
+  autoRenew         Boolean @default(false)
+  
+  // Trial Management
+  isTrial          Boolean @default(false)
+  trialEndsAt      DateTime?
+  trialConverted   Boolean @default(false)
+  
+  // Pricing
+  price            Float
+  currency         String @default("USD")
+  billingPeriod    BillingPeriod
+  nextBillingDate  DateTime?
+  
+  // Metadata
+  purchaseNotes    String?
+  renewalNotes     String?
+  licenseKey       String? @db.Text // Encrypted
+  createdBy        String // User ID
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  addon            Addon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  installation     Installation? @relation(fields: [id], references: [licenseId], map: "license_installation")
+  
+  @@unique([addonId, organizationId])
+  @@map("licenses")
+  @@index([organizationId])
+  @@index([isTrial])
+  @@index([isActive])
+  @@index([endDate])
+}
+
+model Installation {
+  id               String @id @default(cuid())
+  addonId          String
+  organizationId   String
+  licenseId        String? @unique
+  
+  // Configuration
+  status           InstallStatus @default(INSTALLED)
+  settings         Json @default("{}")
+  enabledHooks     HookType[] @default([])
+  webhookUrl       String?
+  
+  // Usage Tracking
+  apiCallsThisMonth Int @default(0)
+  webhookCallsThisMonth Int @default(0)
+  activeUsers      Int @default(0)
+  
+  // Deployment
+  installedVersion String
+  installedAt      DateTime @default(now())
+  lastUpdatedAt    DateTime?
+  updatedBy        String?
+  
+  // Error Handling
+  errorCount       Int @default(0)
+  lastError        String?
+  lastErrorAt      DateTime?
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  addon            Addon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  hookExecutions   HookExecution[]
+  
+  @@unique([addonId, organizationId])
+  @@map("installations")
+  @@index([organizationId])
+  @@index([status])
+  @@index([installedAt])
+}
+
+model HookExecution {
+  id               String @id @default(cuid())
+  installationId   String
+  hookType         HookType
+  webhookUrl       String
+  
+  // Event Data
+  event            Json // HookEvent data
+  correlationId    String?
+  
+  // Execution Status
+  status           HookExecutionStatus @default(PENDING)
+  requestDuration  Int? // Milliseconds
+  
+  // Response Data
+  responseStatus   Int?
+  responseBody     String? @db.Text
+  error            String? @db.Text
+  
+  // Retry Management
+  retryCount       Int @default(0)
+  maxRetries       Int @default(3)
+  
+  // Timestamps
+  executedAt       DateTime @default(now())
+  nextRetryAt      DateTime?
+  
+  // Relations
+  installation     Installation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  attempts         HookExecutionAttempt[]
+  
+  @@map("hook_executions")
+  @@index([installationId])
+  @@index([hookType])
+  @@index([status])
+  @@index([executedAt])
+}
+
+model HookExecutionAttempt {
+  id               String @id @default(cuid())
+  hookExecutionId  String
+  
+  // Attempt Details
+  sequence         Int // 1, 2, 3, etc.
+  timestamp        DateTime @default(now())
+  status           HookAttemptStatus
+  duration         Int? // Milliseconds
+  
+  // Response Details
+  responseStatus   Int?
+  responseBody     String? @db.Text
+  error            String? @db.Text
+  
+  // Relations
+  hookExecution    HookExecution @relation(fields: [hookExecutionId], references: [id], onDelete: Cascade)
+  
+  @@unique([hookExecutionId, sequence])
+  @@map("hook_execution_attempts")
+  @@index([hookExecutionId])
+}
+
+model AddonReview {
+  id               String @id @default(cuid())
+  addonId          String
+  organizationId   String
+  userId           String
+  
+  // Review Content
+  rating           Int // 1-5
+  title            String
+  content          String @db.Text
+  pros             String[] @default([])
+  cons             String[] @default([])
+  
+  // Review Metadata
+  isVerified       Boolean @default(false)
+  isPublished      Boolean @default(true)
+  helpful          Int @default(0) // Number of "helpful" votes
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  // Relations
+  addon            Addon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+  organization     Organization @relation("AddonReviewOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User @relation("AddonReviewUser", fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([addonId, organizationId, userId])
+  @@map("addon_reviews")
+  @@index([addonId])
+  @@index([rating])
+}
+
+model AddonAnalytics {
+  id               String @id @default(cuid())
+  addonId          String
+  organizationId   String
+  period           AnalyticsPeriod
+  startDate        DateTime
+  endDate          DateTime
+  
+  // Metrics
+  installations    Int @default(0)
+  activeUsers      Int @default(0)
+  apiCalls         Int @default(0)
+  webhookCalls     Int @default(0)
+  errors           Int @default(0)
+  averageResponseTime Int @default(0) // Milliseconds
+  revenue            Float?
+  
+  // Aggregated Data
+  aggregates       Json? // Additional aggregated metrics
+  
+  createdAt        DateTime @default(now())
+  
+  // Relations
+  addon            Addon @relation(fields: [addonId], references: [id], onDelete: Cascade)
+  organization     Organization @relation("AddonAnalyticsOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@unique([addonId, organizationId, period, startDate])
+  @@map("addon_analytics")
+  @@index([period])
+  @@index([startDate])
+}
+
+// Epic-09 Enums
+
+enum AddonType {
+  TEMPLATE_PACK
+  COMPLIANCE_CONNECTOR
+  WORKFLOW_EXTENSION
+  DATA_CONNECTOR
+  VISUALIZATION_TOOL
+  CUSTOM_WIDGET
+}
+
+enum AddonStatus {
+  DRAFT
+  PUBLISHED
+  DISCONTINUED
+  ARCHIVED
+}
+
+enum LicenseTier {
+  FREE
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum InstallStatus {
+  INSTALLED
+  ACTIVE
+  INACTIVE
+  UNINSTALLED
+  ERROR
+}
+
+enum HookType {
+  ON_PUBLISH
+  ON_INGEST
+  ON_ASK
+  ON_LOGIN
+  ON_MANUAL_CREATE
+  ON_WORKFLOW_COMPLETE
+  ON_DATA_EXPORT
+  ON_USER_REGISTER
+}
+
+enum HookExecutionStatus {
+  PENDING
+  SENT
+  SUCCESS
+  FAILED
+  TIMEOUT
+}
+
+enum HookAttemptStatus {
+  SENT
+  SUCCESS
+  FAILED
+  TIMEOUT
+}
+
+enum BillingPeriod {
+  MONTHLY
+  YEARLY
+  ONE_TIME
+}
+
+enum AnalyticsPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+// ===============================================
+// EPIC-10: AVIATION-COMPLIANT AUDIT LOGGING
+// ===============================================
+// Note: AuditLog model is defined above in Epic-08 section
+// This section contains aviation-specific enums and extensions
+
+enum AuditEntityType {
+  Manual
+  Chapter
+  Section
+  Block
+  User
+  Organization
+  Device
+  Workflow
+  Compliance
+  Regulation
+  DevicePolicy
+}
+
+enum AuditCertificationLevel {
+  OPERATIONAL
+  SAFETY
+  MAINTENANCE
+  TRAINING
+  CRITICAL_SAFETY
+  EMERGENCY
+}
+
+enum AuditDocumentSource {
+  OEM
+  AUTHORED
+  IMPORTED
+  APPROVED
+  REGULATORY
+}
+
+// Backup & Disaster Recovery Configuration
+model BackupConfiguration {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  schedule             String   // Cron expression
+  retentionDays        Int      @default(30)
+  compressionEnabled   Boolean  @default(true)
+  encryptionEnabled    Boolean  @default(true)
+  s3Enabled            Boolean  @default(false)
+  s3Bucket             String?
+  s3Prefix             String?
+  localPath            String?
+  password             String?  // Encrypted backup password
+  enabled              Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  @@index([organizationId])
+  @@index([enabled])
+}
+
+model BackupJob {
+  id                   String   @id @default(cuid())
+  configId             String
+  organizationId       String
+  status               BackupStatus
+  startTime            DateTime
+  endTime              DateTime?
+  duration             Int?     // seconds
+  sizeBytes            BigInt?
+  compressedSizeBytes  BigInt?
+  checksum             String?
+  error                String?
+  backupPath           String
+  metadata             Json?
+  createdAt            DateTime @default(now())
+  
+  @@index([status])
+  @@index([createdAt])
+  @@index([organizationId])
+}
+
+enum BackupStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// Performance Monitoring
+model PerformanceAlert {
+  id                   String   @id @default(cuid())
+  metricName           String
+  condition            AlertCondition
+  threshold            Float
+  currentValue         Float
+  severity             AlertSeverity
+  message              String
+  organizationId       String?
+  resolved             Boolean  @default(false)
+  resolvedAt           DateTime?
+  createdAt            DateTime @default(now())
+  
+  @@index([metricName])
+  @@index([severity])
+  @@index([resolved])
+  @@index([organizationId])
+}
+
+enum AlertCondition {
+  GT
+  LT
+  EQ
+  GTE
+  LTE
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+// Security Monitoring
+model SecurityAlert {
+  id                   String   @id @default(cuid())
+  alertType            SecurityAlertType
+  severity             SecuritySeverity
+  title                String
+  description          String
+  source               String   // IP, user, endpoint
+  metadata             Json?
+  triggeredAt          DateTime @default(now())
+  resolvedAt           DateTime?
+  acknowledgedBy       String?
+  resolved             Boolean  @default(false)
+  
+  @@index([alertType])
+  @@index([severity])
+  @@index([triggeredAt])
+  @@index([resolved])
+}
+
+enum SecurityAlertType {
+  LOGIN_FAILURE_SPIKE
+  SUSPICIOUS_ACTIVITY
+  RATE_LIMIT_EXCEEDED
+  SQL_INJECTION_ATTEMPT
+  XSS_ATTEMPT
+  BRUTE_FORCE_ATTACK
+  UNAUTHORIZED_ACCESS
+  DATA_EXFILTRATION
+  MALWARE_DETECTION
+  COMPLIANCE_VIOLATION
+}
+
+enum SecuritySeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}

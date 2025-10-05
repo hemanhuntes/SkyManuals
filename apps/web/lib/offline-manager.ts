@@ -623,3 +623,9 @@ export class OfflineManager {
 
 // Export singleton instance
 export const offlineManager = OfflineManager.getInstance();
+
+
+
+
+
+

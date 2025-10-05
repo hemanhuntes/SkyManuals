@@ -439,3 +439,9 @@ export default function ManualReaderPage({ params, searchParams }: ManualReaderP
     </div>
   );
 }
+
+
+
+
+
+

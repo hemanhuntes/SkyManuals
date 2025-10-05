@@ -12,6 +12,21 @@ import {
   AuditIntegrityResult,
 } from '@skymanuals/types';
 
+// Aviation compliance interfaces
+export interface ComplianceMetadata {
+  regulatoryFrameworks: Array<'EASA' | 'FAA' | 'ICAO' | 'EU-OPS'>;
+  certificationLevel?: 'OPERATIONAL' | 'SAFETY' | 'MAINTENANCE' | 'TRAINING' | 'CRITICAL_SAFETY' | 'EMERGENCY';
+  effectiveDate?: Date;
+  retentionPeriodDays?: number;
+  documentSource?: 'OEM' | 'AUTHORED' | 'IMPORTED' | 'APPROVED' | 'REGULATORY';
+  requiresReporting?: boolean;
+  complianceNotes?: string;
+}
+
+export interface AviationAuditEventOptions extends AuditEventOptions {
+  complianceMetadata?: ComplianceMetadata;
+}
+
 export interface AuditEventOptions {
   type: AuditEventType;
   severity?: AuditSeverity;
@@ -316,6 +331,38 @@ export class AuditService {
       tags: ['security', 'security-event'],
       metadata,
     });
+  }
+
+  /**
+   * Log aviation compliance events with regulatory tracking
+   */
+  async logAviationComplianceEvent(
+    context: RequestContext,
+    options: AviationAuditEventOptions,
+  ): Promise<AuditEvent> {
+    const baseOptions: AuditEventOptions = {
+      ...options,
+      tags: [...(options.tags || []), 'aviation', 'compliance'],
+    };
+
+    const event = await this.logEvent(context, baseOptions);
+
+    // Store aviation compliance metadata if provided
+    if (options.complianceMetadata) {
+      await this.prisma.auditLog.update({
+        where: { id: event.id },
+        data: {
+          complianceMetadata: JSON.stringify(options.complianceMetadata),
+          regulatoryFramework: options.complianceMetadata.regulatoryFrameworks.join(','),
+          certificationLevel: options.complianceMetadata.certificationLevel as any,
+          effectiveDate: options.complianceMetadata.effectiveDate,
+          retentionPeriodDays: options.complianceMetadata.retentionPeriodDays,
+          documentSource: options.complianceMetadata.documentSource as any,
+        },
+      });
+    }
+
+    return event;
   }
 
   /**

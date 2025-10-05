@@ -245,3 +245,9 @@ export class SearchIndexService {
     console.log(`✅ Index rebuild initiated for Manual ${manualId}`);
   }
 }
+
+
+
+
+
+

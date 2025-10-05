@@ -2,9 +2,13 @@ import {
   Controller,
   Get,
   Post,
-  Body,
+  Put,
+  Delete,
   Param,
+  Body,
   Query,
+  Req,
+  Logger,
   UseGuards,
   Request,
   HttpCode,
@@ -20,6 +24,9 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { ReaderService } from './reader.service';
+import { BundleGenerationService } from './bundle-generation.service';
+import { CloudFrontService } from './cloudfront.service';
+import { ProgressTrackingService, ReadingProgress } from './progress-tracking.service';
 import {
   ManualReaderResponse,
   SearchResult,
@@ -34,12 +41,575 @@ import {
 class MockAuthGuard {}
 
 @ApiTags('Reader')
-@Controller()
+@Controller('reader')
 @UseGuards(MockAuthGuard)
 export class ReaderController {
-  constructor(private readonly readerService: ReaderService) {}
+  private readonly logger = new Logger(ReaderController.name);
 
-  // Manual Reader Routes
+  constructor(
+    private readonly readerService: ReaderService,
+    private bundleGenerationService: BundleGenerationService,
+    private cloudFrontService: CloudFrontService,
+    private progressTrackingService: ProgressTrackingService
+  ) {}
+
+  // Bundle Generation
+  @Post('bundles/generate/:manualId')
+  @ApiOperation({ summary: 'Generate bundle for manual' })
+  @ApiParam({ name: 'manualId', type: 'string', format: 'uuid' })
+  @ApiResponse({
+    status: 200,
+    description: 'Bundle generated successfully',
+  })
+  async generateBundle(
+    @Param('manualId', ParseUUIDPipe) manualId: string,
+    @Body() options: {
+      includeAnnotations?: boolean;
+      includeMetadata?: boolean;
+      chunkSize?: number;
+    },
+    @Req() req: any
+  ) {
+    this.logger.log(`Generating bundle for manual ${manualId}`);
+
+    try {
+      const bundle = await this.bundleGenerationService.generateBundle(manualId, options);
+
+      return {
+        success: true,
+        bundle,
+        message: 'Bundle generated successfully'
+      };
+    } catch (error) {
+      this.logger.error(`Failed to generate bundle for manual ${manualId}:`, error);
+      return {
+        success: false,
+        message: 'Bundle generation failed',
+        error: error.message
+      };
+    }
+  }
+
+  @Get('bundles/:id')
+  @ApiOperation({ summary: 'Get bundle by ID' })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  @ApiResponse({
+    status: 200,
+    description: 'Bundle retrieved successfully',
+  })
+  async getBundle(@Param('id', ParseUUIDPipe) id: string) {
+    this.logger.log(`Retrieving bundle ${id}`);
+
+    try {
+      const result = await this.bundleGenerationService.getBundle(id);
+
+      return {
+        success: true,
+        ...result
+      };
+    } catch (error) {
+      this.logger.error(`Failed to retrieve bundle ${id}:`, error);
+      return {
+        success: false,
+        message: 'Bundle retrieval failed',
+        error: error.message
+      };
+    }
+  }
+
+  @Delete('bundles/:id')
+  @ApiOperation({ summary: 'Delete bundle by ID' })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  @ApiResponse({
+    status: 200,
+    description: 'Bundle deleted successfully',
+  })
+  async deleteBundle(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    this.logger.log(`Deleting bundle ${id}`);
+
+    try {
+      const result = await this.bundleGenerationService.deleteBundle(id);
+
+      return {
+        success: result.success,
+        message: result.success ? 'Bundle deleted successfully' : 'Bundle deletion failed',
+        error: result.error
+      };
+    } catch (error) {
+      this.logger.error(`Failed to delete bundle ${id}:`, error);
+      return {
+        success: false,
+        message: 'Bundle deletion failed',
+        error: error.message
+      };
+    }
+  }
+
+  // CloudFront URLs
+  @Get('bundles/:id/urls')
+  @ApiOperation({ summary: 'Get bundle URLs with optional signing' })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  @ApiQuery({ name: 'signed', required: false, description: 'Generate signed URLs' })
+  @ApiQuery({ name: 'expires', required: false, description: 'URL expiration time in seconds' })
+  @ApiResponse({
+    status: 200,
+    description: 'Bundle URLs retrieved successfully',
+  })
+  async getBundleUrls(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('signed') signed: string = 'false',
+    @Query('expires') expires: string = '86400'
+  ) {
+    this.logger.log(`Getting bundle URLs for ${id}`);
+
+    try {
+      const bundle = await this.bundleGenerationService.getBundle(id);
+      const urls: { [key: string]: string } = {};
+
+      if (signed === 'true') {
+        for (const chunk of bundle.manifest.chunks) {
+          urls[chunk.key] = await this.cloudFrontService.generateSignedUrl(
+            await this.cloudFrontService.getBundleUrl(id, chunk.index),
+            { expiresIn: parseInt(expires) }
+          );
+        }
+      } else {
+        for (const chunk of bundle.manifest.chunks) {
+          urls[chunk.key] = await this.cloudFrontService.getBundleUrl(id, chunk.index);
+        }
+      }
+
+      return {
+        success: true,
+        bundleId: id,
+        urls,
+        manifest: bundle.manifest
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get bundle URLs for ${id}:`, error);
+      return {
+        success: false,
+        message: 'Failed to get bundle URLs',
+        error: error.message
+      };
+    }
+  }
+
+  // Cache Invalidation
+  @Post('bundles/:id/invalidate')
+  @ApiOperation({ summary: 'Invalidate bundle cache' })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  @ApiResponse({
+    status: 200,
+    description: 'Bundle invalidated successfully',
+  })
+  async invalidateBundle(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    this.logger.log(`Invalidating bundle ${id}`);
+
+    try {
+      const result = await this.cloudFrontService.invalidateBundle(id);
+
+      return {
+        success: true,
+        invalidation: result,
+        message: 'Bundle invalidated successfully'
+      };
+    } catch (error) {
+      this.logger.error(`Failed to invalidate bundle ${id}:`, error);
+      return {
+        success: false,
+        message: 'Bundle invalidation failed',
+        error: error.message
+      };
+    }
+  }
+
+  @Post('bundles/:id/invalidate-manifest')
+  @ApiOperation({ summary: 'Invalidate bundle manifest cache' })
+  @ApiParam({ name: 'id', type: 'string', format: 'uuid' })
+  @ApiResponse({
+    status: 200,
+    description: 'Manifest invalidated successfully',
+  })
+  async invalidateManifest(@Param('id', ParseUUIDPipe) id: string, @Req() req: any) {
+    this.logger.log(`Invalidating manifest for bundle ${id}`);
+
+    try {
+      const result = await this.cloudFrontService.invalidateManifest(id);
+
+      return {
+        success: true,
+        invalidation: result,
+        message: 'Manifest invalidated successfully'
+      };
+    } catch (error) {
+      this.logger.error(`Failed to invalidate manifest for bundle ${id}:`, error);
+      return {
+        success: false,
+        message: 'Manifest invalidation failed',
+        error: error.message
+      };
+    }
+  }
+
+  // Progress Tracking
+  @Post('progress')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Update reading progress' })
+  @ApiResponse({
+    status: 201,
+    description: 'Progress updated successfully',
+  })
+  async updateProgress(
+    @Body() progressData: {
+      bundleId: string;
+      currentChapter?: string;
+      currentSection?: string;
+      currentBlock?: string;
+      progress?: number;
+      readingTime?: number;
+      action: 'start' | 'update' | 'complete' | 'pause';
+    },
+    @Req() req: any
+  ) {
+    this.logger.log(`Updating progress for user ${req.user.id}`);
+
+    try {
+      const progress = await this.progressTrackingService.updateProgress(
+        req.user.id,
+        progressData.bundleId,
+        progressData
+      );
+
+      return {
+        success: true,
+        progress,
+        message: 'Progress updated successfully'
+      };
+    } catch (error) {
+      this.logger.error(`Failed to update progress for user ${req.user.id}:`, error);
+      return {
+        success: false,
+        message: 'Progress update failed',
+        error: error.message
+      };
+    }
+  }
+
+  @Get('progress/:bundleId')
+  @ApiOperation({ summary: 'Get reading progress' })
+  @ApiParam({ name: 'bundleId', type: 'string', format: 'uuid' })
+  @ApiResponse({
+    status: 200,
+    description: 'Progress retrieved successfully',
+  })
+  async getProgress(@Param('bundleId', ParseUUIDPipe) bundleId: string, @Req() req: any) {
+    try {
+      const progress = await this.progressTrackingService.getProgress(req.user.id, bundleId);
+
+      return {
+        success: true,
+        progress
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get progress for user ${req.user.id}:`, error);
+      return {
+        success: false,
+        message: 'Progress retrieval failed',
+        error: error.message
+      };
+    }
+  }
+
+  // Highlights
+  @Post('highlights')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Add highlight' })
+  @ApiResponse({
+    status: 201,
+    description: 'Highlight added successfully',
+  })
+  async addHighlight(
+    @Body() highlightData: {
+      bundleId: string;
+      blockId: string;
+      text: string;
+      startOffset: number;
+      endOffset: number;
+      color: string;
+    },
+    @Req() req: any
+  ) {
+    this.logger.log(`Adding highlight for user ${req.user.id}`);
+
+    try {
+      const highlight = await this.progressTrackingService.addHighlight(
+        req.user.id,
+        highlightData.bundleId,
+        highlightData
+      );
+
+      return {
+        success: true,
+        highlight,
+        message: 'Highlight added successfully'
+      };
+    } catch (error) {
+      this.logger.error(`Failed to add highlight for user ${req.user.id}:`, error);
+      return {
+        success: false,
+        message: 'Highlight creation failed',
+        error: error.message
+      };
+    }
+  }
+
+  // Notes
+  @Post('notes')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Add note' })
+  @ApiResponse({
+    status: 201,
+    description: 'Note added successfully',
+  })
+  async addNote(
+    @Body() noteData: {
+      bundleId: string;
+      blockId: string;
+      text: string;
+      position: number;
+    },
+    @Req() req: any
+  ) {
+    this.logger.log(`Adding note for user ${req.user.id}`);
+
+    try {
+      const note = await this.progressTrackingService.addNote(
+        req.user.id,
+        noteData.bundleId,
+        noteData
+      );
+
+      return {
+        success: true,
+        note,
+        message: 'Note added successfully'
+      };
+    } catch (error) {
+      this.logger.error(`Failed to add note for user ${req.user.id}:`, error);
+      return {
+        success: false,
+        message: 'Note creation failed',
+        error: error.message
+      };
+    }
+  }
+
+  // Bookmarks
+  @Post('bookmarks')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Add bookmark' })
+  @ApiResponse({
+    status: 201,
+    description: 'Bookmark added successfully',
+  })
+  async addBookmark(
+    @Body() bookmarkData: {
+      bundleId: string;
+      chapterId: string;
+      sectionId?: string;
+      blockId?: string;
+      title: string;
+      description?: string;
+    },
+    @Req() req: any
+  ) {
+    this.logger.log(`Adding bookmark for user ${req.user.id}`);
+
+    try {
+      const bookmarkId = await this.progressTrackingService.addBookmark(
+        req.user.id,
+        bookmarkData.bundleId,
+        bookmarkData
+      );
+
+      return {
+        success: true,
+        bookmarkId,
+        message: 'Bookmark added successfully'
+      };
+    } catch (error) {
+      this.logger.error(`Failed to add bookmark for user ${req.user.id}:`, error);
+      return {
+        success: false,
+        message: 'Bookmark creation failed',
+        error: error.message
+      };
+    }
+  }
+
+  // Analytics
+  @Get('analytics')
+  @ApiOperation({ summary: 'Get reading analytics' })
+  @ApiQuery({ name: 'bundleId', required: false, description: 'Filter by bundle ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Analytics retrieved successfully',
+  })
+  async getReadingAnalytics(
+    @Query('bundleId') bundleId?: string,
+    @Req() req: any
+  ) {
+    this.logger.log(`Getting reading analytics for user ${req.user.id}`);
+
+    try {
+      const analytics = await this.progressTrackingService.getReadingAnalytics(
+        req.user.id,
+        bundleId
+      );
+
+      return {
+        success: true,
+        analytics
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get analytics for user ${req.user.id}:`, error);
+      return {
+        success: false,
+        message: 'Analytics retrieval failed',
+        error: error.message
+      };
+    }
+  }
+
+  @Get('sessions')
+  @ApiOperation({ summary: 'Get reading sessions' })
+  @ApiQuery({ name: 'bundleId', required: false, description: 'Filter by bundle ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Sessions retrieved successfully',
+  })
+  async getReadingSessions(
+    @Query('bundleId') bundleId?: string,
+    @Req() req: any
+  ) {
+    this.logger.log(`Getting reading sessions for user ${req.user.id}`);
+
+    try {
+      const sessions = await this.progressTrackingService.getReadingSessions(
+        req.user.id,
+        bundleId
+      );
+
+      return {
+        success: true,
+        sessions
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get sessions for user ${req.user.id}:`, error);
+      return {
+        success: false,
+        message: 'Sessions retrieval failed',
+        error: error.message
+      };
+    }
+  }
+
+  // Health Checks
+  @Get('health')
+  @ApiOperation({ summary: 'Get reader service health status' })
+  @ApiResponse({
+    status: 200,
+    description: 'Health status retrieved successfully',
+  })
+  async getHealth() {
+    try {
+      const [bundleHealth, cloudFrontHealth, progressHealth] = await Promise.all([
+        this.bundleGenerationService.healthCheck(),
+        this.cloudFrontService.healthCheck(),
+        this.progressTrackingService.healthCheck()
+      ]);
+
+      const allHealthy = bundleHealth.status === 'healthy' && 
+                        cloudFrontHealth.status === 'healthy' && 
+                        progressHealth.status === 'healthy';
+
+      return {
+        success: true,
+        status: allHealthy ? 'healthy' : 'unhealthy',
+        services: {
+          bundleGeneration: bundleHealth,
+          cloudFront: cloudFrontHealth,
+          progressTracking: progressHealth
+        }
+      };
+    } catch (error) {
+      this.logger.error(`Health check failed:`, error);
+      return {
+        success: false,
+        status: 'unhealthy',
+        error: error.message
+      };
+    }
+  }
+
+  // Statistics
+  @Get('statistics')
+  @ApiOperation({ summary: 'Get reader statistics' })
+  @ApiResponse({
+    status: 200,
+    description: 'Statistics retrieved successfully',
+  })
+  async getStatistics(@Req() req: any) {
+    try {
+      const [bundleStats, analytics] = await Promise.all([
+        this.bundleGenerationService.getBundleStatistics(req.user.organizationId),
+        this.progressTrackingService.getReadingAnalytics(req.user.id)
+      ]);
+
+      return {
+        success: true,
+        statistics: {
+          bundles: bundleStats,
+          analytics
+        }
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get statistics:`, error);
+      return {
+        success: false,
+        message: 'Statistics retrieval failed',
+        error: error.message
+      };
+    }
+  }
+
+  // Cost Estimation
+  @Get('cost-estimate')
+  @ApiOperation({ summary: 'Get cost estimation' })
+  @ApiResponse({
+    status: 200,
+    description: 'Cost estimate retrieved successfully',
+  })
+  async getCostEstimate() {
+    try {
+      const costEstimate = await this.cloudFrontService.getCostEstimate();
+
+      return {
+        success: true,
+        costEstimate
+      };
+    } catch (error) {
+      this.logger.error(`Failed to get cost estimate:`, error);
+      return {
+        success: false,
+        message: 'Cost estimate retrieval failed',
+        error: error.message
+      };
+    }
+  }
+
+  // Legacy endpoints for backward compatibility
   @Get('manuals/:manualId')
   @ApiOperation({ summary: 'Get manual for reading by version' })
   @ApiParam({ name: 'manualId', type: 'string', format: 'uuid' })
@@ -48,10 +618,6 @@ export class ReaderController {
     status: 200,
     description: 'Manual content retrieved successfully',
     type: ManualReaderResponse,
-  })
-  @ApiResponse({
-    status: 404,
-    description: 'Manual or version not found',
   })
   async getManual(
     @Param('manualId', ParseUUIDPipe) manualId: string,
@@ -74,7 +640,6 @@ export class ReaderController {
     return this.readerService.getAvailableBundles(manualId);
   }
 
-  // Search Routes
   @Post('search')
   @ApiOperation({ summary: 'Search across manuals' })
   @ApiResponse({
@@ -86,33 +651,6 @@ export class ReaderController {
     return this.readerService.search(searchQuery);
   }
 
-  @Get('search/suggestions')
-  @ApiOperation({ summary: 'Get search suggestions' })
-  @ApiQuery({ name: 'q', required: true, description: 'Search query' })
-  @ApiQuery({ name: 'manualId', required: false, description: 'Limit to specific manual' })
-  @ApiResponse({
-    status: 200,
-    description: 'Search suggestions retrieved',
-  })
-  async getSearchSuggestions(
-    @Query('q') query: string,
-    @Query('manualId') manualId?: string,
-  ): Promise<string[]> {
-    return this.readerService.getSearchSuggestions(query, manualId);
-  }
-
-  @Get('search/popular')
-  @ApiOperation({ summary: 'Get popular searches' })
-  @ApiQuery({ name: 'manualId', required: false, description: 'Limit to specific manual' })
-  @ApiResponse({
-    status: 200,
-    description: 'Popular searches retrieved',
-  })
-  async getPopularSearches(@Query('manualId') manualId?: string): Promise<string[]> {
-    return this.readerService.getPopularSearches(manualId);
-  }
-
-  // Annotation Routes
   @Post('manuals/:manualId/annotations')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create annotation' })
@@ -131,53 +669,6 @@ export class ReaderController {
     return this.readerService.createAnnotation(manualId, userId, annotationData);
   }
 
-  @Get('manuals/:manualId/annotations')
-  @ApiOperation({ summary: 'Get manual annotations' })
-  @ApiParam({ name: 'manualId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Annotations retrieved successfully',
-    type: [Annotation],
-  })
-  async getAnnotations(
-    @Param('manualId', ParseUUIDPipe) manualId: string,
-    @Query('chapterId') chapterId?: string,
-    @Request() req: any,
-  ): Promise<Annotation[]> {
-    const userId = req.user?.id || 'mock-user-id';
-    return this.readerService.getAnnotations(manualId, userId, chapterId);
-  }
-
-  @Post('manuals/:manualId/suggest-edits')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Suggest edit to manual content' })
-  @ApiParam({ name: 'manualId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 201,
-    description: 'Edit suggestion created successfully',
-    type: SuggestEdit,
-  })
-  async suggestEdit(
-    @Param('manualId', ParseUUIDPipe) manualId: string,
-    @Body() suggestData: any,
-    @Request() req: any,
-  ): Promise<SuggestEdit> {
-    const userId = req.user?.id || 'mock-user-id';
-    return this.readerService.suggestEdit(manualId, userId, suggestData);
-  }
-
-  @Get('manuals/:manualId/revisions')
-  @ApiOperation({ summary: "Get revision bars for 'What's New'" })
-  @ApiParam({ name: 'manualId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Revision bars retrieved successfully',
-  })
-  async getRevisionBars(@Param('manualId', ParseUUIDPipe) manualId: string): Promise<any> {
-    return this.readerService.getRevisionBars(manualId);
-  }
-
-  // Reader Session Routes
   @Post('manuals/:manualId/session')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create or update reader session' })
@@ -194,86 +685,5 @@ export class ReaderController {
   ): Promise<ReaderSession> {
     const userId = req.user?.id || 'mock-user-id';
     return this.readerService.updateReadingSession(manualId, userId, sessionData);
-  }
-
-  @Get('manuals/:manualId/session')
-  @ApiOperation({ summary: 'Get reader session' })
-  @ApiParam({ name: 'manualId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Reader session retrieved successfully',
-    type: ReaderSession,
-  })
-  async getReaderSession(
-    @Param('manualId', ParseUUIDPipe) manualId: string,
-    @Request() req: any,
-  ): Promise<ReaderSession | null> {
-    const userId = req.user?.id || 'mock-user-id';
-    return this.readerService.getReaderSession(manualId, userId);
-  }
-
-  // Offline Support Routes
-  @Get('manuals/:manualId/offline')
-  @ApiOperation({ summary: 'Get offline capabilities for manual' })
-  @ApiParam({ name: 'manualId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Offline capabilities retrieved',
-  })
-  async getOfflineCapabilities(
-    @Param('manualId', ParseUUIDPipe) manualId: string,
-    @Request() req: any,
-  ): Promise<any> {
-    const userId = req.user?.id || 'mock-user-id';
-    return this.readerService.getOfflineCapabilities(manualId, userId);
-  }
-
-  @Post('manuals/:manualId/cache')
-  @ApiOperation({ summary: 'Cache manual for offline access' })
-  @ApiParam({ name: 'manualId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'Manual cached for offline access',
-  })
-  async cacheForOffline(
-    @Param('manualId', ParseUUIDPipe) manualId: string,
-    @Request() req: any,
-  ): Promise<any> {
-    const userId = req.user?.id || 'mock-user-cache-user';
-    return this.readerService.cacheForOffline(manualId, userId);
-  }
-
-  // Analytics Routes
-  @Post('manuals/:manualId/analytics')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Track reader analytics event' })
-  @ApiParam({ name: 'manualId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 201,
-    description: 'Analytics event tracked successfully',
-  })
-  async trackAnalytics(
-    @Param('manualId', ParseUUIDPipe) manualId: string,
-    @Body() analyticsData: any,
-    @Request() req: any,
-  ): Promise<void> {
-    const userId = req.user?.id || 'mock-analytics-user';
-    return this.readerService.trackAnalytics(manualId, userId, analyticsData);
-  }
-
-  // Permission Routes
-  @Get('manuals/:manualId/permissions')
-  @ApiOperation({ summary: 'Check user permissions for manual access' })
-  @ApiParam({ name: 'manualId', type: 'string', format: 'uuid' })
-  @ApiResponse({
-    status: 200,
-    description: 'User permissions retrieved',
-  })
-  async getUserPermissions(
-    @Param('manualId', ParseUUIDPipe) manualId: string,
-    @Request() req: any,
-  ): Promise<any> {
-    const userId = req.user?.id || 'mock-permissions-user';
-    return this.readerService.getUserPermissions(manualId, userId);
   }
 }

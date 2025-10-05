@@ -284,3 +284,9 @@ export class PdfGeneratorService {
     return Buffer.from('Mock PDF content');
   }
 }
+
+
+
+
+
+

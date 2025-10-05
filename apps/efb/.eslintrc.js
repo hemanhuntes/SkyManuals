@@ -19,3 +19,9 @@ module.exports = {
     'react-native/no-color-literals': 2,
   },
 };
+
+
+
+
+
+

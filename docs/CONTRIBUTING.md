@@ -1,6 +1,6 @@
 # Bidrag till SkyManuals
 
-Tack för att du överväger att bidra till SkyManuals! Denna guide hjälper dig att komma igång med utveckling och förstår processen för att bidra till projektet.
+Tack för att du överväger att bidra till SkyManuals! Denna guide hjälper dig att komma igång med utveckling och förstå processen för att bidra till projektet.
 
 ## Första Steg
 
@@ -126,7 +126,7 @@ chore(deps): upgrade to next.js 14
 
 När du skapar en Pull Request, se till:
 
-- [ ] Kod följer projektstandardar och är läst
+- [ ] Kod följer projektstandarder och är läst
 - [ ] Relevanta tester är inkluderade/uppdaterade
 - [ ] Dokumentationen är uppdaterad vid behov
 - [ ] Commit meddelanden följer Conventional Commits
@@ -140,8 +140,8 @@ När du skapar en Pull Request, se till:
 - Functionality fungerar som förväntat
 - Kod är läsbar och välkommenterad
 - Tester täcker ny funktionalitet (minst 80% coverage för kritisk kod)
-- Inga säkerhetsrisk för introduktions
-- Aviation compliance valideted för relevanta ändringar
+- Inga säkerhetsrisker introducerade
+- Aviation compliance validerad för relevanta ändringar
 
 **Bör ha:**
 - Prestanda optimeringar där relevant

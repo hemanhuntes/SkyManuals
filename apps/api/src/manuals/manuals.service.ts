@@ -400,3 +400,9 @@ export class ManualsService {
     return configs[smartBlockType] || {};
   }
 }
+
+
+
+
+
+

@@ -1,0 +1,249 @@
+// Simplified Prisma schema for SkyManuals API
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Core Models
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  organizationId String
+  status    UserStatus @default(ACTIVE)
+  roles     String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@map("users")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  type      OrganizationType
+  status    OrganizationStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  users User[]
+  
+  @@map("organizations")
+}
+
+model Manual {
+  id        String   @id @default(cuid())
+  title     String
+  organizationId String
+  status    ManualStatus @default(DRAFT)
+  createdBy String
+  updatedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  chapters Chapter[]
+  
+  @@map("manuals")
+}
+
+model Chapter {
+  id        String   @id @default(cuid())
+  manualId  String
+  number    Int
+  title     String
+  content   String
+  createdBy String
+  updatedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  manual Manual @relation(fields: [manualId], references: [id], onDelete: Cascade)
+  sections Section[]
+  
+  @@unique([manualId, number])
+  @@map("chapters")
+}
+
+model Section {
+  id        String   @id @default(cuid())
+  chapterId String
+  number    String
+  title     String
+  content   String
+  createdBy String
+  updatedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  blocks Block[]
+  
+  @@unique([chapterId, number])
+  @@map("sections")
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  sectionId String
+  type      BlockType
+  content   String
+  order     Int
+  createdBy String
+  updatedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  section Section @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  
+  @@map("blocks")
+}
+
+// Audit and Compliance
+model AuditLog {
+  id        String   @id @default(cuid())
+  entityType String
+  entityId  String
+  action    String
+  userId    String?
+  organizationId String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  
+  @@map("audit_logs")
+}
+
+// Search
+model SearchIndex {
+  id              String   @id @default(cuid())
+  contentHash     String   @unique
+  manualId        String
+  chapterId       String
+  sectionId       String
+  version         String
+  contentType     ContentType
+  title           String
+  content         String
+  organizationId  String
+  isReleased      Boolean
+  indexedAt       DateTime @default(now())
+
+  @@map("search_index")
+  @@index([manualId, isReleased])
+  @@index([organizationId, isReleased])
+}
+
+model SearchAnalytics {
+  id            String   @id @default(cuid())
+  query         String
+  userId        String?
+  sessionId     String?
+  resultCount   Int
+  searchTimeMs  Int
+  timestamp     DateTime @default(now())
+
+  @@map("search_analytics")
+}
+
+// Workflow and Tasks
+model WorkflowInstance {
+  id        String   @id @default(cuid())
+  manualId  String
+  status    WorkflowStatus @default(DRAFT)
+  initiatedBy String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("workflow_instances")
+}
+
+model ApprovalTask {
+  id        String   @id @default(cuid())
+  workflowInstanceId String
+  assignedToUserId String
+  title     String
+  description String?
+  role      String
+  priority  TaskPriority
+  status    TaskStatus @default(PENDING)
+  dueDate   DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("approval_tasks")
+}
+
+// Enums
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum OrganizationType {
+  AIRLINE
+  MAINTENANCE
+  REGULATOR
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ManualStatus {
+  DRAFT
+  IN_PROGRESS
+  APPROVED
+  RELEASED
+  ARCHIVED
+}
+
+enum BlockType {
+  TEXT
+  PROCEDURE
+  WARNING
+  NOTE
+  REFERENCE
+}
+
+enum ContentType {
+  MANUAL
+  CHAPTER
+  SECTION
+  BLOCK
+}
+
+enum WorkflowStatus {
+  DRAFT
+  IN_PROGRESS
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}

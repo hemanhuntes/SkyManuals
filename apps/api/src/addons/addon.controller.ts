@@ -259,3 +259,9 @@ export class AddonController {
     return { success: true, message: 'Failed hook executions processed for retry' };
   }
 }
+
+
+
+
+
+

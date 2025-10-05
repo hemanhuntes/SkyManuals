@@ -17,3 +17,9 @@ export class PrismaService extends PrismaClient {
     await this.$disconnect();
   }
 }
+
+
+
+
+
+

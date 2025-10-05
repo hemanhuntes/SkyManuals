@@ -1,389 +1,482 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  ImpactAnalysis,
-  ImpactAnalysisRequest,
-  ImpactAnalysisSchema,
-  ImpactAnalysisRequestSchema,
-} from '@skymanuals/types';
-import { v4 as uuidv4 } from 'uuid';
+import { OpenAIComplianceService, RegulationMatch } from './openai-compliance.service';
+
+export interface ImpactAnalysis {
+  regulationId: string;
+  regulationTitle: string;
+  changeType: 'NEW' | 'UPDATED' | 'DELETED' | 'AMENDED';
+  changeDescription: string;
+  effectiveDate: Date;
+  affectedDocuments: AffectedDocument[];
+  impactScore: number;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  recommendations: string[];
+  actionItems: ActionItem[];
+  estimatedEffort: number; // hours
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+}
+
+export interface AffectedDocument {
+  documentId: string;
+  documentType: 'MANUAL' | 'PROCEDURE' | 'CHECKLIST';
+  documentTitle: string;
+  chapterId?: string;
+  sectionId?: string;
+  impactLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  currentCompliance: number;
+  requiredChanges: string[];
+  estimatedEffort: number; // hours
+}
+
+export interface ActionItem {
+  id: string;
+  title: string;
+  description: string;
+  assignedTo?: string;
+  dueDate: Date;
+  status: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'OVERDUE';
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  estimatedEffort: number; // hours
+  dependencies: string[];
+}
+
+export interface ComplianceAlert {
+  id: string;
+  type: 'REGULATION_CHANGE' | 'COMPLIANCE_DEADLINE' | 'NON_COMPLIANCE' | 'REVIEW_REQUIRED';
+  severity: 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
+  title: string;
+  description: string;
+  affectedDocuments: string[];
+  dueDate?: Date;
+  status: 'ACTIVE' | 'RESOLVED' | 'DISMISSED';
+  createdAt: Date;
+  resolvedAt?: Date;
+  assignedTo?: string;
+}
 
 @Injectable()
 export class ImpactAnalysisService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(ImpactAnalysisService.name);
 
-  async analyzeImpact(
-    request: ImpactAnalysisRequest,
-    userId?: string,
-  ): Promise<ImpactAnalysis> {
-    console.log(`🔍 Starting impact analysis for regulation library ${request.regulationLibraryId}`);
-    console.log(`   New version: ${request.newVersion}`);
+  constructor(
+    private prisma: PrismaService,
+    private openaiService: OpenAIComplianceService
+  ) {}
 
-    // Validate regulation library
-    const regulationLibrary = await this.prisma.regulationLibrary.findUnique({
-      where: { id: request.regulationLibraryId },
-      include: {
-        regulationItems: true,
-      },
-    });
-
-    if (!regulationLibrary) {
-      throw new NotFoundException(`Regulation library ${request.regulationLibraryId} not found`);
-    }
-
-    // Create impact analysis record
-    const impactAnalysis = await this.prisma.impactAnalysis.create({
-      data: {
-        id: uuidv4(),
-        triggerType: 'REGULATION_UPDATE',
-        regulationLibraryId: request.regulationLibraryId,
-        oldVersion: regulationLibrary.version,
-        newVersion: request.newVersion,
-        analysisScope: {
-          organizationIds: request.analysisScope.organizationIds || [],
-          manualIds: request.analysisScope.manualIds || [],
-          regulationItemIds: regulationLibrary.regulationItems.map(item => item.id),
-        },
-        status: 'PENDING',
-        analyzedBy: userId,
-      },
-    });
-
-    // Perform impact analysis
-    await this.performImpactAnalysis(impactAnalysis.id);
-
-    // Return updated analysis
-    const updatedAnalysis = await this.prisma.impactAnalysis.findUnique({
-      where: { id: impactAnalysis.id },
-    });
-
-    if (!updatedAnalysis) {
-      throw new NotFoundException('Impact analysis not found after creation');
-    }
-
-    return ImpactAnalysisSchema.parse({
-      ...updatedAnalysis,
-      createdAt: updatedAnalysis.createdAt.toISOString(),
-      updatedAt: updatedAnalysis.updatedAt.toISOString(),
-      reviewedAt: updatedAnalysis.reviewedAt?.toISOString(),
-    });
-  }
-
-  private async performImpactAnalysis(analysisId: string): Promise<void> {
-    console.log(`⚙️ Performing impact analysis: ${analysisId}`);
+  async analyzeRegulationImpact(regulationId: string): Promise<ImpactAnalysis> {
+    this.logger.log(`Analyzing impact for regulation ${regulationId}`);
 
     try {
-      // Update status to in progress
-      await this.prisma.impactAnalysis.update({
-        where: { id: analysisId },
-        data: { status: 'IN_PROGRESS' },
+      // 1. Get regulation details
+      const regulation = await this.prisma.regulation.findUnique({
+        where: { id: regulationId }
       });
 
-      const analysis = await this.prisma.impactAnalysis.findUnique({
-        where: { id: analysisId },
-        include: {
-          regulationLibrary: true,
-        },
-      });
-
-      if (!analysis) {
-        throw new Error('Impact analysis not found');
+      if (!regulation) {
+        throw new Error(`Regulation ${regulationId} not found`);
       }
 
-      // Get compliance links affected by this regulation library
-      const affectedLinks = await this.prisma.complianceLink.findMany({
-        where: {
-          regulationLibraryId: analysis.regulationLibraryId,
-          status: {
-            in: ['ACTIVE', 'DRAFT'],
-          },
-        },
+      // 2. Find all documents that reference this regulation
+      const complianceLinks = await this.prisma.complianceLink.findMany({
+        where: { regulationId },
         include: {
-          manual: true,
-          regulationItem: true,
-          block: true,
-        },
+          document: {
+            include: {
+              chapters: {
+                include: {
+                  sections: true
+                }
+              }
+            }
+          }
+        }
       });
 
-      // Simulate analysis results
-      const results = await this.simulateAnalysisResults(analysis, affectedLinks);
+      // 3. Analyze impact for each document
+      const affectedDocuments: AffectedDocument[] = [];
+      
+      for (const link of complianceLinks) {
+        const impact = await this.analyzeDocumentImpact(link, regulation);
+        affectedDocuments.push(impact);
+      }
 
-      // Generate recommendations
-      const recommendations = await this.generateRecommendations(analysis, results, affectedLinks);
+      // 4. Calculate overall impact score
+      const impactScore = this.calculateImpactScore(affectedDocuments);
 
-      // Create automated checklist if needed
-      const automatedChecklistId = results.conflictCount > 0 ? 
-        await this.createAutomatedChecklist(analysisId, affectedLinks) : null;
+      // 5. Determine risk level
+      const riskLevel = this.determineRiskLevel(impactScore, affectedDocuments);
 
-      // Update analysis with results
-      await this.prisma.impactAnalysis.update({
-        where: { id: analysisId },
-        data: {
-          status: 'COMPLETED',
-          results,
-          recommendations,
-          automatedChecklistId,
-        },
-      });
+      // 6. Generate recommendations and action items
+      const { recommendations, actionItems } = await this.generateRecommendations(
+        regulation,
+        affectedDocuments
+      );
 
-      console.log(`✅ Impact analysis completed: ${analysisId}`);
+      // 7. Calculate priority and effort
+      const priority = this.determinePriority(impactScore, riskLevel, regulation.effectiveDate);
+      const estimatedEffort = affectedDocuments.reduce((sum, doc) => sum + doc.estimatedEffort, 0);
 
+      const analysis: ImpactAnalysis = {
+        regulationId: regulation.id,
+        regulationTitle: regulation.title,
+        changeType: 'UPDATED', // This would be determined from regulation change history
+        changeDescription: `Regulation ${regulation.title} has been updated`,
+        effectiveDate: regulation.effectiveDate,
+        affectedDocuments,
+        impactScore,
+        riskLevel,
+        recommendations,
+        actionItems,
+        estimatedEffort,
+        priority
+      };
+
+      // 8. Store analysis
+      await this.storeImpactAnalysis(analysis);
+
+      // 9. Create compliance alerts if needed
+      await this.createComplianceAlerts(analysis);
+
+      this.logger.log(`Impact analysis completed: ${affectedDocuments.length} documents affected, ${riskLevel} risk`);
+
+      return analysis;
     } catch (error) {
-      console.error(`❌ Impact analysis failed: ${error.message}`);
-
-      await this.prisma.impactAnalysis.update({
-        where: { id: analysisId },
-        data: {
-          status: 'REQUIRES_REVIEW',
-          results: {
-            error: error.message,
-            processingFailedAt: new Date().toISOString(),
-          },
-        },
-      });
-
-      throw error;
+      this.logger.error(`Failed to analyze regulation impact:`, error);
+      throw new Error(`Impact analysis failed: ${error.message}`);
     }
   }
 
-  private async simulateAnalysisResults(analysis: any, affectedLinks: any[]): Promise<any> {
-    console.log(`🧪 Simulating impact analysis results for ${affectedLinks.length} affected links`);
+  async analyzeDocumentImpact(
+    complianceLink: any,
+    regulation: any
+  ): Promise<AffectedDocument> {
+    // Analyze how a specific document is affected by regulation changes
+    const document = complianceLink.document;
+    
+    // Determine impact level based on confidence score and document type
+    let impactLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' = 'LOW';
+    
+    if (complianceLink.confidenceScore > 0.9) {
+      impactLevel = 'CRITICAL';
+    } else if (complianceLink.confidenceScore > 0.7) {
+      impactLevel = 'HIGH';
+    } else if (complianceLink.confidenceScore > 0.5) {
+      impactLevel = 'MEDIUM';
+    }
 
-    // Get unique blocks and paragraphs affected
-    const affectedParagraphs = [...new Set(affectedLinks
-      .filter(link => link.blockId)
-      .map(link => link.blockId))].length;
+    // Estimate required changes
+    const requiredChanges = this.estimateRequiredChanges(document, regulation, impactLevel);
 
-    // Simulate regulation changes
-    const newRequirements = Math.floor(Math.random() * 5) + 1; // 1-5 new requirements
-    const modifiedRequiredments = Math.floor(Math.random() * 8) + 2; // 2-9 modified
-    const obsoleteRequirements = Math.floor(Math.random() * 3); // 0-2 obsolete
-
-    // Calculate conflicts (links that may no longer be valid)
-    const conflictLinks = affectedLinks.filter(link => 
-      Math.random() > 0.7 // 30% chance of conflict per link
-    );
-
-    // Risk assessment
-    const highRiskLinks = conflictLinks.filter(link => 
-      link.regulationItem.priority === 'CRITICAL' || link.regulationItem.priority === 'HIGH'
-    );
-
-    const mediumRiskLinks = conflictLinks.filter(link => 
-      link.regulationItem.priority === 'MEDIUM'
-    );
-
-    const lowRiskLinks = conflictLinks.filter(link => 
-      link.regulationItem.priority === 'LOW'
-    );
-
-    // Estimate effort
-    const estimatedHours = Math.max(
-      newRequirements * 2 + // 2 hours per new requirement
-      modifiedRequiredments * 1.5 + // 1.5 hours per modified requirement
-      obsoleteRequiredments * 0.5 + // 0.5 hours per obsolete requirement
-      conflictLinks.length * 1, // 1 hour per conflict resolution
-      10 // Minimum 10 hours
-    );
-
-    const resources = ['Compliance Team', 'Technical Writers', 'Subject Matter Experts'];
+    // Estimate effort based on document size and complexity
+    const estimatedEffort = this.estimateEffort(document, impactLevel, requiredChanges.length);
 
     return {
-      affectedParagraphs,
-      newRequirements,
-      modifiedRequirements: modifiedRequiredments,
-      obsoleteRequirements: obsoleteRequiredments,
-      conflictCount: conflictLinks.length,
-      riskAssessment: {
-        highRisk: highRiskLinks.length,
-        mediumRisk: mediumRiskLinks.length,
-        lowRisk: lowRiskLinks.length,
-      },
-      complianceLinksAffected: affectedLinks.map(link => ({
-        linkId: link.id,
-        manualTitle: link.manual.title,
-        regulationReference: link.regulationItem.reference,
-        conflictRisk: conflictLinks.includes(link) ? 'HIGH' : 'LOW',
-        blockId: link.blockId,
-      })),
-      estimatedEffort: {
-        hours: estimatedHours,
-        resources,
-        timeline: this.generateTimeline(estimatedHours),
-      },
+      documentId: document.id,
+      documentType: 'MANUAL', // This would be determined from document metadata
+      documentTitle: document.title,
+      impactLevel,
+      currentCompliance: complianceLink.confidenceScore * 100,
+      requiredChanges,
+      estimatedEffort
     };
   }
 
-  private async generateRecommendations(analysis: any, results: any, affectedLinks: any[]): Promise<any[]> {
-    console.log(`💡 Generating recommendations for impact analysis`);
+  private calculateImpactScore(affectedDocuments: AffectedDocument[]): number {
+    if (affectedDocuments.length === 0) return 0;
 
+    const weights = {
+      CRITICAL: 4,
+      HIGH: 3,
+      MEDIUM: 2,
+      LOW: 1
+    };
+
+    const totalWeight = affectedDocuments.reduce((sum, doc) => {
+      return sum + weights[doc.impactLevel] * doc.estimatedEffort;
+    }, 0);
+
+    const maxPossibleWeight = affectedDocuments.length * weights.CRITICAL * 40; // Max 40 hours per document
+
+    return Math.min(100, (totalWeight / maxPossibleWeight) * 100);
+  }
+
+  private determineRiskLevel(
+    impactScore: number,
+    affectedDocuments: AffectedDocument[]
+  ): 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' {
+    const criticalCount = affectedDocuments.filter(d => d.impactLevel === 'CRITICAL').length;
+    const highCount = affectedDocuments.filter(d => d.impactLevel === 'HIGH').length;
+
+    if (criticalCount > 0 || impactScore > 80) return 'CRITICAL';
+    if (highCount > 2 || impactScore > 60) return 'HIGH';
+    if (highCount > 0 || impactScore > 30) return 'MEDIUM';
+    return 'LOW';
+  }
+
+  private determinePriority(
+    impactScore: number,
+    riskLevel: string,
+    effectiveDate: Date
+  ): 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' {
+    const daysUntilEffective = Math.ceil((effectiveDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+
+    if (daysUntilEffective < 30 || riskLevel === 'CRITICAL') return 'URGENT';
+    if (daysUntilEffective < 60 || riskLevel === 'HIGH') return 'HIGH';
+    if (daysUntilEffective < 90 || riskLevel === 'MEDIUM') return 'MEDIUM';
+    return 'LOW';
+  }
+
+  private estimateRequiredChanges(
+    document: any,
+    regulation: any,
+    impactLevel: string
+  ): string[] {
+    const changes = [];
+
+    switch (impactLevel) {
+      case 'CRITICAL':
+        changes.push('Complete content review and update required');
+        changes.push('Update procedures and workflows');
+        changes.push('Staff training and certification updates');
+        changes.push('Quality assurance review');
+        break;
+      case 'HIGH':
+        changes.push('Content review and selective updates');
+        changes.push('Procedure updates');
+        changes.push('Staff notification and training');
+        break;
+      case 'MEDIUM':
+        changes.push('Content review');
+        changes.push('Minor procedure adjustments');
+        break;
+      case 'LOW':
+        changes.push('Documentation review');
+        break;
+    }
+
+    return changes;
+  }
+
+  private estimateEffort(
+    document: any,
+    impactLevel: string,
+    changeCount: number
+  ): number {
+    const baseEffort = {
+      CRITICAL: 20,
+      HIGH: 10,
+      MEDIUM: 5,
+      LOW: 2
+    };
+
+    const documentComplexity = document.chapters?.length || 1;
+    const complexityMultiplier = Math.min(3, Math.ceil(documentComplexity / 5));
+
+    return baseEffort[impactLevel] * complexityMultiplier * changeCount;
+  }
+
+  private async generateRecommendations(
+    regulation: any,
+    affectedDocuments: AffectedDocument[]
+  ): Promise<{
+    recommendations: string[];
+    actionItems: ActionItem[];
+  }> {
     const recommendations = [];
+    const actionItems: ActionItem[] = [];
 
-    // Critical actions for new requirements
-    if (results.newRequirements > 0) {
-      recommendations.push({
-        priority: 'HIGH',
-        action: `Review and implement ${results.newRequirements} new regulation requirements`,
-        responsible: 'Compliance Team Lead',
-        deadline: this.calculateDeadline(30), // 30 days from now
-        estimatedEffort: `${results.newRequirements * 2} hours`,
+    // Generate recommendations based on regulation and affected documents
+    if (affectedDocuments.some(d => d.impactLevel === 'CRITICAL')) {
+      recommendations.push('Immediate action required for critical compliance issues');
+      recommendations.push('Establish compliance review team');
+      recommendations.push('Implement enhanced monitoring and reporting');
+    }
+
+    if (affectedDocuments.length > 5) {
+      recommendations.push('Consider phased implementation approach');
+      recommendations.push('Prioritize documents with highest compliance scores');
+    }
+
+    recommendations.push('Schedule regular compliance reviews');
+    recommendations.push('Update staff training programs');
+    recommendations.push('Implement automated compliance monitoring');
+
+    // Generate action items
+    const urgentDocs = affectedDocuments.filter(d => d.impactLevel === 'CRITICAL');
+    
+    for (const doc of urgentDocs) {
+      actionItems.push({
+        id: `action_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        title: `Update ${doc.documentTitle}`,
+        description: `Critical compliance update required for ${doc.documentTitle}`,
+        dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days
+        status: 'PENDING',
+        priority: 'URGENT',
+        estimatedEffort: doc.estimatedEffort,
+        dependencies: []
       });
     }
 
-    // Conflict resolution
-    if (results.conflictCount > 0) {
-      recommendations.push({
-        priority: 'CRITICAL',
-        action: `Resolve ${results.conflictCount} compliance link conflicts`,
-        responsible: 'Regulatory Affairs Manager',
-        deadline: this.calculateDeadline(14), // 14 days for conflicts
-        estimatedEffort: `${results.conflictCount * 1} hours`,
-      });
-    }
-
-    // High-risk items
-    if (results.riskAssessment.highRisk > 0) {
-      recommendations.push({
-        priority: 'CRITICAL',
-        action: `Immediate review of ${results.riskAssessment.highRisk} high-risk compliance links`,
-        responsible: 'Safety Manager',
-        deadline: this.calculateDeadline(7), // 7 days for high-risk
-        estimatedEffort: `${results.riskAssessment.highRisk * 2} hours`,
-      });
-    }
-
-    // Manual updates
-    const affectedManuals = [...new Set(affectedLinks.map(link => link.manualId))];
-    if (affectedManuals.length > 0) {
-      recommendations.push({
-        priority: 'MEDIUM',
-        action: `Update ${affectedManuals.length} affected aircraft manuals`,
-        responsible: 'Technical Writing Team',
-        deadline: this.calculateDeadline(60), // 60 days for manual updates
-        estimatedEffort: `${affectedManuals.length * 8} hours`,
-      });
-    }
-
-    // Audit preparation
-    recommendations.push({
-      priority: 'MEDIUM',
-      action: 'Prepare for upcoming compliance audit with updated regulations',
-      responsible: 'Quality Assurance Manager',
-      deadline: this.calculateDeadline(90), // 90 days for audit prep
-      estimatedEffort: '16 hours',
-    });
-
-    return recommendations;
+    return { recommendations, actionItems };
   }
 
-  private async createAutomatedChecklist(analysisId: string, affectedLinks: any[]): Promise<string> {
-    console.log(`📋 Creating automated audit checklist for impact analysis`);
-
-    // Create audit checklist through the audit service
-    // For now, return a mock checklist ID
-    const checklistId = uuidv4();
-
-    console.log(`✅ Created automated checklist: ${checklistId}`);
-
-    return checklistId;
-  }
-
-  private calculateDeadline(days: number): string {
-    const deadline = new Date();
-    deadline.setDate(deadline.getDate() + days);
-    return deadline.toISOString().split('T')[0]; // Return just the date part
-  }
-
-  private generateTimeline(hours: number): string {
-    // Simple timeline generation based on hours
-    const weeks = Math.ceil(hours / 40); // Assume 40 hours per week
-
-    if (weeks === 1) {
-      return '1 week';
-    } else if (weeks <= 4) {
-      return `${weeks} weeks`;
-    } else {
-      const months = Math.ceil(weeks / 4);
-      return `${months} months`;
-    }
-  }
-
-    async getImpactAnalysis(analysisId: string): Promise<ImpactAnalysis> {
-        console.log(`📊 Retrieving impact analysis: ${analysisId}`);
-
-        const analysis = await this.prisma.impactAnalysis.findUnique({
-            where: { id: analysisId },
-            include: {
-                regulationLibrary: {
-                    select: {
-                        title: true,
-                        source: true,
-                        region: true,
-                        version: true,
-                    },
-                },
-            },
-        });
-
-        if (!analysis) {
-            throw new NotFoundException(`Impact analysis ${analysisId} not found`);
+  private async storeImpactAnalysis(analysis: ImpactAnalysis): Promise<void> {
+    try {
+      await this.prisma.impactAnalysis.create({
+        data: {
+          id: `impact_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          regulationId: analysis.regulationId,
+          regulationTitle: analysis.regulationTitle,
+          changeType: analysis.changeType,
+          changeDescription: analysis.changeDescription,
+          effectiveDate: analysis.effectiveDate,
+          impactScore: analysis.impactScore,
+          riskLevel: analysis.riskLevel,
+          estimatedEffort: analysis.estimatedEffort,
+          priority: analysis.priority,
+          affectedDocumentsCount: analysis.affectedDocuments.length,
+          analysisData: analysis,
+          createdAt: new Date()
         }
-
-        return ImpactAnalysisSchema.parse({
-            ...analysis,
-            createdAt: analysis.createdAt.toISOString(),
-            updatedAt: analysis.updatedAt.toISOString(),
-            reviewedAt: analysis.reviewedAt?.toISOString(),
-        });
+      });
+    } catch (error) {
+      this.logger.error(`Failed to store impact analysis:`, error);
     }
+  }
 
-    async getRecentAnalyses(organizationId: string = 'default-org', limit: number = 10): Promise<ImpactAnalysis[]> {
-        console.log(`📋 Retrieving recent impact analyses for organization ${organizationId}`);
-
-        const analyses = await this.prisma.impactAnalysis.findMany({
-            include: {
-                regulationLibrary: {
-                    select: {
-                        title: true,
-                        source: true,
-                        region: true,
-                        version: true,
-                    },
-                },
-            },
-            orderBy: {
-                createdAt: 'desc',
-            },
-            take: limit,
+  private async createComplianceAlerts(analysis: ImpactAnalysis): Promise<void> {
+    try {
+      // Create alerts for critical and high impact issues
+      const criticalDocs = analysis.affectedDocuments.filter(d => d.impactLevel === 'CRITICAL');
+      
+      for (const doc of criticalDocs) {
+        await this.prisma.complianceAlert.create({
+          data: {
+            id: `alert_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            type: 'REGULATION_CHANGE',
+            severity: 'CRITICAL',
+            title: `Critical Compliance Update Required: ${doc.documentTitle}`,
+            description: `Document ${doc.documentTitle} requires immediate updates due to regulation changes in ${analysis.regulationTitle}`,
+            affectedDocuments: [doc.documentId],
+            dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days
+            status: 'ACTIVE',
+            createdAt: new Date()
+          }
         });
+      }
 
-        return analyses.map(analysis => ImpactAnalysisSchema.parse({
-            ...analysis,
-            createdAt: analysis.createdAt.toISOString(),
-            updatedAt: analysis.updatedAt.toISOString(),
-            reviewedAt: analysis.reviewedAt?.toISOString(),
-        }));
+      // Create summary alert for the regulation change
+      if (analysis.riskLevel === 'CRITICAL' || analysis.riskLevel === 'HIGH') {
+        await this.prisma.complianceAlert.create({
+          data: {
+            id: `alert_summary_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            type: 'REGULATION_CHANGE',
+            severity: analysis.riskLevel === 'CRITICAL' ? 'CRITICAL' : 'WARNING',
+            title: `Regulation Update Impact: ${analysis.regulationTitle}`,
+            description: `Regulation ${analysis.regulationTitle} has been updated, affecting ${analysis.affectedDocuments.length} documents`,
+            affectedDocuments: analysis.affectedDocuments.map(d => d.documentId),
+            dueDate: analysis.effectiveDate,
+            status: 'ACTIVE',
+            createdAt: new Date()
+          }
+        });
+      }
+    } catch (error) {
+      this.logger.error(`Failed to create compliance alerts:`, error);
     }
+  }
 
-    async acknowledgeAnalysis(analysisId: string, userId: string): Promise<ImpactAnalysis> {
-        console.log(`👤 Acknowledging impact analysis ${analysisId} by user ${userId}`);
+  async getImpactAnalyses(organizationId: string): Promise<ImpactAnalysis[]> {
+    try {
+      const analyses = await this.prisma.impactAnalysis.findMany({
+        where: {
+          regulation: {
+            // Filter by organization if needed
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 50
+      });
 
-        const analysis = await this.prisma.impactAnalysis.update({
-            where: { id: analysisId },
-            data: {
-                reviewedBy: userId,
-                reviewedAt: new Date(),
-                status: 'REQUIRES_REVIEW',
-            },
-        });
-
-        console.log(`✅ Impact analysis acknowledged: ${analysisId}`);
-
-        return ImpactAnalysisSchema.parse({
-            ...analysis,
-            createdAt: analysis.createdAt.toISOString(),
-            updatedAt: analysis.updatedAt.toISOString(),
-            reviewedAt: analysis.reviewedAt?.toISOString(),
-        });
+      return analyses.map(analysis => analysis.analysisData as ImpactAnalysis);
+    } catch (error) {
+      this.logger.error(`Failed to get impact analyses:`, error);
+      throw new Error(`Impact analyses retrieval failed: ${error.message}`);
     }
+  }
+
+  async getComplianceAlerts(organizationId: string): Promise<ComplianceAlert[]> {
+    try {
+      const alerts = await this.prisma.complianceAlert.findMany({
+        where: {
+          status: 'ACTIVE'
+        },
+        orderBy: [
+          { severity: 'desc' },
+          { createdAt: 'desc' }
+        ],
+        take: 100
+      });
+
+      return alerts.map(alert => ({
+        id: alert.id,
+        type: alert.type as any,
+        severity: alert.severity as any,
+        title: alert.title,
+        description: alert.description,
+        affectedDocuments: alert.affectedDocuments || [],
+        dueDate: alert.dueDate,
+        status: alert.status as any,
+        createdAt: alert.createdAt,
+        resolvedAt: alert.resolvedAt,
+        assignedTo: alert.assignedTo
+      }));
+    } catch (error) {
+      this.logger.error(`Failed to get compliance alerts:`, error);
+      throw new Error(`Compliance alerts retrieval failed: ${error.message}`);
+    }
+  }
+
+  async resolveAlert(alertId: string, resolution: string): Promise<{ success: boolean }> {
+    try {
+      await this.prisma.complianceAlert.update({
+        where: { id: alertId },
+        data: {
+          status: 'RESOLVED',
+          resolvedAt: new Date(),
+          resolution
+        }
+      });
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error(`Failed to resolve alert ${alertId}:`, error);
+      return { success: false };
+    }
+  }
+
+  // Health check
+  async healthCheck(): Promise<{ status: string; details?: any }> {
+    try {
+      const alertCount = await this.prisma.complianceAlert.count({
+        where: { status: 'ACTIVE' }
+      });
+
+      const analysisCount = await this.prisma.impactAnalysis.count();
+
+      return {
+        status: 'healthy',
+        details: {
+          activeAlerts: alertCount,
+          totalAnalyses: analysisCount
+        }
+      };
+    } catch (error) {
+      return {
+        status: 'unhealthy',
+        details: { error: error.message }
+      };
+    }
+  }
 }

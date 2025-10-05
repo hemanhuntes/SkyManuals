@@ -52,3 +52,9 @@ jobs:
           docker build -t skymanuals/api:${{ github.sha }} -f apps/api/Dockerfile .
           docker build -t skymanuals/web:latest -f apps/web/Dockerfile .
           docker build -t skymanuals/api:latest -f apps/api/Dockerfile .
+
+
+
+
+
+

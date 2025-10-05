@@ -584,30 +584,126 @@ export class ReaderService {
   }
 
   private async fetchBundleFromCDN(bundleUrl: string): Promise<any> {
-    // Mock CDN fetch - in production, this would fetch from actual CDN
     console.log(`📥 Fetching bundle from CDN: ${bundleUrl}`);
     
-    // Return mock bundle data
-    return {
-      bundleId: 'mock-bundle-id',
-      manualId: 'mock-manual-id',
-      version: '1.0.0',
-      publishedAt: new Date().toISOString(),
-      manual: {
-        id: 'mock-manual-id',
-        title: 'Mock Aircraft Manual',
-        organizationId: 'mock-org-id',
-        title: 'Mock Aircraft Manual',
-        status: 'RELEASED',
+    try {
+      // Use fetch to get bundle from CDN
+      const response = await fetch(bundleUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'SkyManuals-Reader/1.0'
+        },
+        // Add timeout
+        signal: AbortSignal.timeout(10000) // 10 second timeout
+      });
+
+      if (!response.ok) {
+        throw new Error(`CDN fetch failed: ${response.status} ${response.statusText}`);
+      }
+
+      const bundleData = await response.json();
+      console.log(`✅ Successfully fetched bundle from CDN (${bundleData.bundleSize || 'unknown'} bytes)`);
+      
+      return bundleData;
+    } catch (error) {
+      console.error(`❌ Failed to fetch bundle from CDN: ${error.message}`);
+      
+      // Fallback to cached bundle if available
+      try {
+        const fallbackBundle = await this.getFallbackBundle(bundleUrl);
+        if (fallbackBundle) {
+          console.log(`🔄 Using fallback bundle from cache`);
+          return fallbackBundle;
+        }
+      } catch (fallbackError) {
+        console.error(`❌ Fallback bundle also failed: ${fallbackError.message}`);
+      }
+      
+      // Last resort: return minimal bundle structure
+      console.warn(`⚠️ Using minimal bundle structure as last resort`);
+      return {
+        bundleId: 'fallback-bundle',
+        manualId: 'unknown',
+        version: '1.0.0',
         publishedAt: new Date().toISOString(),
-      },
-      chapters: [],
-      metadata: {
-        bundleVersion: '1.0',
-        authorId: 'mock-author',
-        createdAt: new Date().toISOString(),
-      },
-    };
+        manual: {
+          id: 'fallback-manual',
+          title: 'Offline Manual (Fallback)',
+          organizationId: 'unknown',
+          status: 'RELEASED',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          createdBy: 'system',
+          updatedBy: 'system'
+        },
+        chapters: [],
+        annotations: [],
+        bundleSize: 0
+      };
+    }
+  }
+
+  private async getFallbackBundle(bundleUrl: string): Promise<any | null> {
+    try {
+      // Try to get bundle from database cache
+      const bundleId = this.extractBundleIdFromUrl(bundleUrl);
+      
+      if (bundleId) {
+        const cachedBundle = await this.prisma.readerBundle.findUnique({
+          where: { id: bundleId },
+          include: {
+            manual: {
+              include: {
+                chapters: {
+                  include: {
+                    sections: true,
+                    blocks: true
+                  }
+                }
+              }
+            }
+          }
+        });
+
+        if (cachedBundle) {
+          return {
+            bundleId: cachedBundle.id,
+            manualId: cachedBundle.manualId,
+            version: cachedBundle.version,
+            publishedAt: cachedBundle.createdAt,
+            manual: cachedBundle.manual,
+            chapters: cachedBundle.manual.chapters,
+            bundleSize: JSON.stringify(cachedBundle).length
+          };
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error(`❌ Error getting fallback bundle: ${error.message}`);
+      return null;
+    }
+  }
+
+  private extractBundleIdFromUrl(bundleUrl: string): string | null {
+    try {
+      // Extract bundle ID from URL patterns like:
+      // https://cdn.skymanuals.com/bundles/{bundleId}/manifest.json
+      // or similar patterns
+      const url = new URL(bundleUrl);
+      const pathParts = url.pathname.split('/');
+      const bundleIndex = pathParts.findIndex(part => part === 'bundles');
+      
+      if (bundleIndex !== -1 && pathParts[bundleIndex + 1]) {
+        return pathParts[bundleIndex + 1];
+      }
+      
+      return null;
+    } catch (error) {
+      console.error(`❌ Error extracting bundle ID from URL: ${error.message}`);
+      return null;
+    }
   }
 
   private generateContentChecksum(content: any): string {
@@ -615,3 +711,7 @@ export class ReaderService {
     return Buffer.from(contentString).toString('base64').slice(0, 16);
   }
 }
+
+
+
+

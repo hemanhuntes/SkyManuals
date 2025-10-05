@@ -107,3 +107,9 @@ jobs:
         run: |
           docker run --rm skymanuals/web:latest node --version || echo "Web image built successfully"
           docker run --rm skymanuals/api:latest node --version || echo "API image built successfully"
+
+
+
+
+
+

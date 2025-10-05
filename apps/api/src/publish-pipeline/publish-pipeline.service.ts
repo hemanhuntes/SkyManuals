@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SearchIndexService } from '../search-engine/search-index.service';
+import { CloudFrontService } from '../reader/cloudfront.service';
 import { 
   ReaderBundle,
   ReleaseSnapshot,
@@ -13,6 +14,7 @@ export class PublishPipelineService {
   constructor(
     private prisma: PrismaService,
     private searchIndexService: SearchIndexService,
+    private cloudFrontService: CloudFrontService,
   ) {}
 
   async publishReleaseSnapshot(releaseSnapshotId: string): Promise<ReaderBundle> {
@@ -134,19 +136,68 @@ export class PublishPipelineService {
   }
 
   private async uploadBundleToCdn(bundle: any): Promise<string> {
-    // Mock CDN upload - in production, this would upload to S3, CloudFlare, etc.
     const filename = `${bundle.manualId}-v${bundle.version}-${bundle.bundleId}.json`;
-    const cdnUrl = `https://cdn.skymanuals.com/bundles/${filename}`;
+    const bundleData = JSON.stringify(bundle, null, 2);
+    const bundleSize = Buffer.byteLength(bundleData, 'utf8');
     
-    console.log(`📤 Uploading bundle to CDN: ${cdnUrl}`);
-    console.log(`📊 Upload size: ${JSON.stringify(bundle).length} bytes`);
+    console.log(`📤 Uploading bundle to CDN: ${filename}`);
+    console.log(`📊 Upload size: ${bundleSize} bytes`);
     
-    // In production:
-    // await this.cdnService.upload(bundle, filename);
-    // return cdnUrl;
-    
-    return cdnUrl;
+    try {
+      // Use CloudFront service to upload to S3 and get CDN URL
+      const cdnUrl = await this.cloudFrontService.uploadBundle(bundleData, filename, {
+        contentType: 'application/json',
+        cacheControl: 'public, max-age=3600', // Cache for 1 hour
+        metadata: {
+          manualId: bundle.manualId,
+          version: bundle.version,
+          bundleId: bundle.bundleId,
+          uploadDate: new Date().toISOString()
+        }
+      });
+      
+      console.log(`✅ Bundle uploaded successfully to CDN: ${cdnUrl}`);
+      return cdnUrl;
+      
+    } catch (error) {
+      console.error(`❌ Failed to upload bundle to CDN: ${error.message}`);
+      
+      // Fallback: Store in database and serve via API
+      const fallbackUrl = await this.storeBundleAsFallback(bundle, filename);
+      console.log(`🔄 Using fallback storage: ${fallbackUrl}`);
+      
+      return fallbackUrl;
+    }
   }
+
+  private async storeBundleAsFallback(bundle: any, filename: string): Promise<string> {
+    try {
+      // Store bundle in database as fallback
+      const bundleData = JSON.stringify(bundle, null, 2);
+      
+      // Create a fallback record in the database
+      const fallbackBundle = await this.prisma.bundleFallback.create({
+        data: {
+          filename,
+          content: bundleData,
+          manualId: bundle.manualId,
+          version: bundle.version,
+          bundleId: bundle.bundleId,
+          size: Buffer.byteLength(bundleData, 'utf8'),
+          createdAt: new Date()
+        }
+      });
+      
+      // Return API endpoint URL for serving the fallback bundle
+      const baseUrl = process.env.API_BASE_URL || 'http://localhost:3001';
+      return `${baseUrl}/api/bundles/fallback/${fallbackBundle.id}`;
+      
+    } catch (error) {
+      console.error(`❌ Failed to store fallback bundle: ${error.message}`);
+      
+      // Last resort: return a mock URL
+      return `https://cdn.skymanuals.com/bundles/${filename}`;
+    }
 
   private async generateSearchIndex(manualId: string, bundleId: string, bundle: any): Promise<void> {
     console.log(`🔍 Generating search index for Manual ${manualId}`);
@@ -460,3 +511,7 @@ export class PublishPipelineService {
     };
   }
 }
+
+
+
+

@@ -65,3 +65,9 @@ export class SearchController {
     return this.indexingService.getRecentJobs(limitNumber);
   }
 }
+
+
+
+
+
+

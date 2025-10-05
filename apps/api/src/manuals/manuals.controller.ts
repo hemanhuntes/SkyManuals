@@ -1,309 +1,406 @@
 import {
   Controller,
-  Get,
   Post,
-  Put,
-  Patch,
-  Delete,
-  Body,
+  Get,
   Param,
   Query,
-  Headers,
-  HttpCode,
-  HttpStatus,
-  UseGuards,
+  Body,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+  Res,
+  Req,
+  Logger
 } from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiParam,
-  ApiHeader,
-  ApiBody,
-  ApiSecurity,
-} from '@nestjs/swagger';
-import { ManualsService } from './manuals.service';
-import {
-  Manual,
-  Chapter,
-  Section,
-  Block,
-  ChangeSet,
-  Version,
-  TipTapDocument,
-  ManualSchema,
-  ChangeSetSchema,
-} from '@skymanuals/types';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
+import { ManualProcessingService } from './manual-processing.service';
+import { ManualExportService, ExportOptions } from './manual-export.service';
+import { PerformanceOptimizationService, PaginationOptions } from './performance-optimization.service';
+import { PrismaService } from '../prisma/prisma.service';
 
-@ApiTags('manuals')
-@Controller('api/manuals')
+@Controller('manuals')
 export class ManualsController {
-  constructor(private readonly manualsService: ManualsService) {}
+  private readonly logger = new Logger(ManualsController.name);
 
-  @Post()
-  @ApiOperation({ summary: 'Create a new manual' })
-  @ApiBody({ schema: { properties: { title: { type: 'string' } } } })
-  @ApiResponse({ status: 201, description: 'Manual created successfully' })
-  async createManual(
-    @Body() body: { title: string; organizationId: string },
-    @Headers('x-user-id') userId: string,
-  ): Promise<{ manual: Manual; changeSet: ChangeSet; etag: string }> {
-    const { manual, changeSet } = await this.manualsService.createManual(
-      body.organizationId,
-      body.title,
-      userId,
-    );
+  constructor(
+    private prisma: PrismaService,
+    private processingService: ManualProcessingService,
+    private exportService: ManualExportService,
+    private optimizationService: PerformanceOptimizationService
+  ) {}
 
-    return {
-      manual: ManualSchema.parse(manual),
-      changeSet: ChangeSetSchema.parse(changeSet),
-      etag: changeSet.id, // Using changeSet ID as ETag for simplicity
-    };
-  }
+  // PDF Upload & Processing
+  @Post('upload')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadManual(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() metadata: any,
+    @Req() req: any
+  ) {
+    this.logger.log(`Uploading manual: ${file?.originalname}`);
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Get manual by ID' })
-  @ApiParam({ name: 'id', description: 'Manual ID' })
-  @ApiResponse({ status: 200, description: 'Manual retrieved successfully' })
-  @ApiResponse({ status: 404, description: 'Manual not found' })
-  async getManual(@Param('id') manualId: string): Promise<{ manual: Manual; etag: string }> {
-    const manual = await this.manualsService.getManual(manualId);
-    
-    return {
-      manual: ManualSchema.parse(manual),
-      etag: manual.id, // Using manual ID as ETag
-    };
-  }
+    // Validate PDF
+    if (!file) {
+      throw new BadRequestException('No file uploaded');
+    }
 
-  @Patch(':id')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Update manual' })
-  @ApiParam({ name: 'id', description: 'Manual ID' })
-  @ApiHeader({ 
-    name: 'If-Match', 
-    description: 'ETag for optimistic locking', 
-    required: false 
-  })
-  @ApiBody({ 
-    schema: { 
-      type: 'object',
-      properties: {
-        title: { type: 'string' },
-        status: { type: 'string', enum: ['DRAFT', 'RELEASED'] }
-      }
-    } 
-  })
-  @ApiResponse({ status: 200, description: 'Manual updated successfully' })
-  @ApiResponse({ status: 409, description: 'Concurrent modification conflict' })
-  async updateManual(
-    @Param('id') manualId: string,
-    @Body() updates: { title?: string; status?: string },
-    @Headers('x-user-id') userId: string,
-    @Headers('if-match') ifMatch: string,
-  ): Promise<{ manual: Manual; changeSet: ChangeSet; etag: string }> {
-    const { manual, changeSet } = await this.manualsService.updateManual(
-      manualId,
-      updates as any,
-      userId,
-      ifMatch,
-    );
+    if (file.mimetype !== 'application/pdf') {
+      throw new BadRequestException('Only PDF files are supported');
+    }
 
-    return {
-      manual: ManualSchema.parse(manual),
-      changeSet: ChangeSetSchema.parse(changeSet),
-      etag: changeSet.id,
-    };
-  }
+    if (file.size > 50 * 1024 * 1024) { // 50MB limit
+      throw new BadRequestException('File size too large. Maximum 50MB allowed.');
+    }
 
-  // Chapter endpoints
-  @Post(':manualId/chapters')
-  @ApiOperation({ summary: 'Create a new chapter' })
-  @ApiParam({ name: 'manualId', description: 'Manual ID' })
-  @ApiBody({ 
-    schema: { 
-      properties: {
-        title: { type: 'string' },
-        number: { type: 'string' }
-      } 
-    } 
-  })
-  async createChapter(
-    @Param('manualId') manualId: string,
-    @Body() body: { title: string; number: string },
-    @Headers('x-user-id') userId: string,
-  ): Promise<{ chapter: Chapter; changeSet: ChangeSet }> {
-    const { chapter, changeSet } = await this.manualsService.createChapter(
-      manualId,
-      body.title,
-      body.number,
-      userId,
-    );
+    try {
+      // Process PDF
+      const processed = await this.processingService.processUploadedPDF(
+        file.buffer,
+        file.originalname
+      );
 
-    return { chapter, changeSet };
-  }
+      // Create manual in database
+      const manual = await this.processingService.createManualFromProcessed(
+        processed,
+        req.user.organizationId,
+        req.user.id
+      );
 
-  // Section endpoints
-  @Post(':manualId/chapters/:chapterId/sections')
-  @ApiOperation({ summary: 'Create a new section' })
-  @ApiParam({ name: 'chapterId', description: 'Chapter ID' })
-  @ApiBody({ 
-    schema: { 
-      properties: {
-        title: { type: 'string' },
-        number: { type: 'string' }
-      } 
-    } 
-  })
-  async createSection(
-    @Param('chapterId') chapterId: string,
-    @Body() body: { title: string; number: string },
-    @Headers('x-user-id') userId: string,
-  ): Promise<{ section: Section; changeSet: ChangeSet }> {
-    const { section, changeSet } = await this.manualsService.createSection(
-      chapterId,
-      body.title,
-      body.number,
-      userId,
-    );
+      // Invalidate cache
+      await this.optimizationService.invalidateManualCache(manual.id);
 
-    return { section, changeSet };
-  }
+      this.logger.log(`Successfully uploaded manual: ${manual.id}`);
 
-  // Block endpoints
-  @Patch('blocks/:blockId/content')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Update block content with TipTap format' })
-  @ApiParam({ name: 'blockId', description: 'Block ID' })
-  @ApiHeader({ 
-    name: 'If-Match', 
-    description: 'ETag for optimistic locking', 
-    required: false 
-  })
-  @ApiBody({ 
-    schema: { 
-      type: 'object',
-      properties: {
-        content: { 
-          type: 'object',
-          properties: {
-            type: { type: 'string', enum: ['doc'] },
-            content: { type: 'array' }
-          }
+      return {
+        success: true,
+        manual: {
+          id: manual.id,
+          title: manual.title,
+          status: manual.status,
+          version: manual.version,
+          chapters: processed.chapters.length,
+          sections: processed.sections.length,
+          blocks: processed.blocks.length
         }
-      }
-    } 
-  })
-  @ApiResponse({ status: 200, description: 'Block content updated successfully' })
-  @ApiResponse({ status: 409, description: 'Concurrent modification conflict' })
-  async updateBlockContent(
-    @Param('blockId') blockId: string,
-    @Body() body: { content: TipTapDocument },
-    @Headers('x-user-id') userId: string,
-    @Headers('if-match') ifMatch: string,
-  ): Promise<{ block: Block; changeSet: ChangeSet; version: Version; etag: string }> {
-    const { block, changeSet, version } = await this.manualsService.updateBlockContent(
-      blockId,
-      body.content,
-      userId,
-      ifMatch,
-    );
+      };
+    } catch (error) {
+      this.logger.error(`Failed to upload manual:`, error);
+      throw new BadRequestException(`Upload failed: ${error.message}`);
+    }
+  }
 
-    return {
-      block,
-      changeSet,
-      version,
-      etag: version.etag,
+  // Export to PDF
+  @Get(':id/export')
+  async exportManual(
+    @Param('id') manualId: string,
+    @Query('format') format: 'pdf' | 'html' = 'pdf',
+    @Query('includeAnnotations') includeAnnotations: string = 'false',
+    @Query('includeMetadata') includeMetadata: string = 'true',
+    @Res() res: Response
+  ) {
+    this.logger.log(`Exporting manual ${manualId} to ${format}`);
+
+    try {
+      const options: ExportOptions = {
+        format,
+        includeAnnotations: includeAnnotations === 'true',
+        includeMetadata: includeMetadata === 'true',
+        pageSize: 'A4',
+        margin: {
+          top: '20mm',
+          right: '20mm',
+          bottom: '20mm',
+          left: '20mm'
+        }
+      };
+
+      if (format === 'pdf') {
+        const pdfBuffer = await this.exportService.exportToPDF(manualId, options);
+        
+        res.set({
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="manual-${manualId}.pdf"`,
+          'Content-Length': pdfBuffer.length.toString()
+        });
+        
+        res.send(pdfBuffer);
+      } else {
+        const html = await this.exportService.exportToHTML(manualId, options);
+        
+        res.set({
+          'Content-Type': 'text/html',
+          'Content-Disposition': `attachment; filename="manual-${manualId}.html"`
+        });
+        
+        res.send(html);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to export manual ${manualId}:`, error);
+      throw new BadRequestException(`Export failed: ${error.message}`);
+    }
+  }
+
+  // Version Comparison
+  @Get(':id/versions/compare')
+  async compareVersions(
+    @Param('id') manualId: string,
+    @Query('v1') v1: string,
+    @Query('v2') v2: string
+  ) {
+    this.logger.log(`Comparing versions ${v1} and ${v2} for manual ${manualId}`);
+
+    if (!v1 || !v2) {
+      throw new BadRequestException('Both v1 and v2 parameters are required');
+    }
+
+    try {
+      const comparison = await this.exportService.compareVersions(manualId, v1, v2);
+      
+      return {
+        success: true,
+        comparison: {
+          manualId,
+          version1: v1,
+          version2: v2,
+          summary: comparison.summary,
+          affectedChapters: comparison.affectedChapters,
+          changes: comparison.changes.slice(0, 50) // Limit to first 50 changes
+        }
+      };
+    } catch (error) {
+      this.logger.error(`Failed to compare versions for manual ${manualId}:`, error);
+      throw new BadRequestException(`Version comparison failed: ${error.message}`);
+    }
+  }
+
+  // Paginated Manuals List
+  @Get()
+  async getManuals(
+    @Query('page') page: string = '1',
+    @Query('size') size: string = '20',
+    @Query('sortBy') sortBy: string = 'updatedAt',
+    @Query('sortOrder') sortOrder: 'asc' | 'desc' = 'desc',
+    @Req() req: any
+  ) {
+    const options: PaginationOptions = {
+      page: parseInt(page),
+      size: parseInt(size),
+      sortBy,
+      sortOrder
     };
-  }
 
-  @Post('sections/:sectionId/blocks/smart')
-  @ApiOperation({ summary: 'Insert a smart block' })
-  @ApiParam({ name: 'sectionId', description: 'Section ID' })
-  @ApiBody({ 
-    schema: { 
-      properties: {
-        smartBlockType: { type: 'string', enum: ['LEP', 'MEL', 'ChangeLog', 'RevisionBar', 'CrossRef'] },
-        position: { type: 'number' }
-      } 
-    } 
-  })
-  async insertSmartBlock(
-    @Param('sectionId') sectionId: string,
-    @Body() body: { smartBlockType: string; position: number },
-    @Headers('x-user-id') userId: string,
-  ): Promise<{ block: Block; changeSet: ChangeSet }> {
-    const { block, changeSet } = await this.manualsService.insertSmartBlock(
-      sectionId,
-      body.smartBlockType,
-      body.position,
-      userId,
-    );
+    this.logger.log(`Fetching manuals for organization ${req.user.organizationId}`);
 
-    return { block, changeSet };
-  }
+    try {
+      const result = await this.optimizationService.getManualsPaginated(
+        req.user.organizationId,
+        options
+      );
 
-  // ChangeSet endpoints
-  @Get('changesets/:changeSetId')
-  @ApiOperation({ summary: 'Get change set by ID' })
-  @ApiParam({ name: 'changeSetId', description: 'ChangeSet ID' })
-  async getChangeSet(@Param('changeSetId') changeSetId: string): Promise<ChangeSet> {
-    return this.manualsService.getChangeSet(changeSetId);
-  }
-
-  @Post('changesets/:changeSetId/approve')
-  @ApiOperation({ summary: 'Approve a change set' })
-  @ApiParam({ name: 'changeSetId', description: 'ChangeSet ID' })
-  @ApiResponse({ status: 200, description: 'Change set approved successfully' })
-  async approveChangeSet(@Param('changeSetId') changeSetId: string): Promise<ChangeSet> {
-    return this.manualsService.approveChangeSet(changeSetId);
-  }
-
-  @Post('changesets/:changeSetId/reject')
-  @ApiOperation({ summary: 'Reject a change set' })
-  @ApiParam({ name: 'changeSetId', description: 'ChangeSet ID' })
-  @ApiResponse({ status: 200, description: 'Change set rejected successfully' })
-  async rejectChangeSet(@Param('changeSetId') changeSetId: string): Promise<ChangeSet> {
-    return this.manualsService.rejectChangeSet(changeSetId);
-  }
-
-  @Post('changesets/:changeSetId/merge')
-  @ApiOperation({ summary: 'Merge a change set' })
-  @ApiParam({ name: 'changeSetId', description: 'ChangeSet ID' })
-  @ApiResponse({ status: 200, description: 'Change set merged successfully' })
-  async mergeChangeSet(@Param('changeSetId') changeSetId: string): Promise<ChangeSet> {
-    return this.manualsService.mergeChangeSet(changeSetId);
-  }
-
-  // Export endpoints
-  @Get(':id/export/html')
-  @ApiOperation({ summary: 'Export manual as HTML' })
-  @ApiParam({ name: 'id', description: 'Manual ID' })
-  @ApiResponse({ 
-    status: 200, 
-    description: 'HTML export',
-    content: {
-      'text/html': {
-        schema: { type: 'string' }
-      }
+      return {
+        success: true,
+        ...result
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch manuals:`, error);
+      throw new BadRequestException(`Failed to fetch manuals: ${error.message}`);
     }
-  })
-  async exportToHtml(@Param('id') manualId: string): Promise<string> {
-    return this.manualsService.exportToHtml(manualId);
   }
 
-  @Get(':id/export/pdf')
-  @ApiOperation({ summary: 'Export manual as PDF' })
-  @ApiParam({ name: 'id', description: 'Manual ID' })
-  @ApiResponse({ 
-    status: 200, 
-    description: 'PDF export',
-    content: {
-      'application/pdf': {
-        schema: { type: 'string', format: 'binary' }
+  // Get Manual with Caching
+  @Get(':id')
+  async getManual(@Param('id') manualId: string) {
+    this.logger.log(`Fetching manual: ${manualId}`);
+
+    try {
+      const manual = await this.optimizationService.getCachedManual(manualId);
+      
+      if (!manual) {
+        throw new BadRequestException('Manual not found');
       }
+
+      return {
+        success: true,
+        manual
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch manual ${manualId}:`, error);
+      throw new BadRequestException(`Failed to fetch manual: ${error.message}`);
     }
-  })
-  async exportToPdf(@Param('id') manualId: string): Promise<Buffer> {
-    return this.manualsService.exportToPdf(manualId);
+  }
+
+  // Paginated Chapters
+  @Get(':id/chapters')
+  async getChapters(
+    @Param('id') manualId: string,
+    @Query('page') page: string = '1',
+    @Query('size') size: string = '20',
+    @Query('sortBy') sortBy: string = 'number',
+    @Query('sortOrder') sortOrder: 'asc' | 'desc' = 'asc'
+  ) {
+    const options: PaginationOptions = {
+      page: parseInt(page),
+      size: parseInt(size),
+      sortBy,
+      sortOrder
+    };
+
+    this.logger.log(`Fetching chapters for manual: ${manualId}`);
+
+    try {
+      const result = await this.optimizationService.getChaptersPaginated(manualId, options);
+
+      return {
+        success: true,
+        ...result
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch chapters for manual ${manualId}:`, error);
+      throw new BadRequestException(`Failed to fetch chapters: ${error.message}`);
+    }
+  }
+
+  // Get Chapter with Caching
+  @Get('chapters/:id')
+  async getChapter(@Param('id') chapterId: string) {
+    this.logger.log(`Fetching chapter: ${chapterId}`);
+
+    try {
+      const chapter = await this.optimizationService.getCachedChapter(chapterId);
+      
+      if (!chapter) {
+        throw new BadRequestException('Chapter not found');
+      }
+
+      return {
+        success: true,
+        chapter
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch chapter ${chapterId}:`, error);
+      throw new BadRequestException(`Failed to fetch chapter: ${error.message}`);
+    }
+  }
+
+  // Paginated Sections
+  @Get('chapters/:id/sections')
+  async getSections(
+    @Param('id') chapterId: string,
+    @Query('page') page: string = '1',
+    @Query('size') size: string = '20',
+    @Query('sortBy') sortBy: string = 'number',
+    @Query('sortOrder') sortOrder: 'asc' | 'desc' = 'asc'
+  ) {
+    const options: PaginationOptions = {
+      page: parseInt(page),
+      size: parseInt(size),
+      sortBy,
+      sortOrder
+    };
+
+    this.logger.log(`Fetching sections for chapter: ${chapterId}`);
+
+    try {
+      const result = await this.optimizationService.getSectionsPaginated(chapterId, options);
+
+      return {
+        success: true,
+        ...result
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch sections for chapter ${chapterId}:`, error);
+      throw new BadRequestException(`Failed to fetch sections: ${error.message}`);
+    }
+  }
+
+  // Search Manuals
+  @Get('search')
+  async searchManuals(
+    @Query('q') query: string,
+    @Query('page') page: string = '1',
+    @Query('size') size: string = '20',
+    @Req() req: any
+  ) {
+    if (!query) {
+      throw new BadRequestException('Search query is required');
+    }
+
+    const options: PaginationOptions = {
+      page: parseInt(page),
+      size: parseInt(size)
+    };
+
+    this.logger.log(`Searching manuals with query: ${query}`);
+
+    try {
+      const result = await this.optimizationService.searchManuals(
+        req.user.organizationId,
+        query,
+        options
+      );
+
+      return {
+        success: true,
+        query,
+        ...result
+      };
+    } catch (error) {
+      this.logger.error(`Failed to search manuals:`, error);
+      throw new BadRequestException(`Search failed: ${error.message}`);
+    }
+  }
+
+  // Manual Statistics
+  @Get('statistics')
+  async getStatistics(@Req() req: any) {
+    this.logger.log(`Fetching statistics for organization: ${req.user.organizationId}`);
+
+    try {
+      const stats = await this.optimizationService.getManualStatistics(req.user.organizationId);
+
+      return {
+        success: true,
+        statistics: stats
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch statistics:`, error);
+      throw new BadRequestException(`Failed to fetch statistics: ${error.message}`);
+    }
+  }
+
+  // Cache Health Check
+  @Get('cache/health')
+  async getCacheHealth() {
+    try {
+      const health = await this.optimizationService.getCacheHealth();
+
+      return {
+        success: true,
+        cache: health
+      };
+    } catch (error) {
+      this.logger.error(`Failed to check cache health:`, error);
+      throw new BadRequestException(`Cache health check failed: ${error.message}`);
+    }
+  }
+
+  // Clear Cache (Admin only)
+  @Post('cache/clear')
+  async clearCache(@Req() req: any) {
+    // In production, add admin role check here
+    this.logger.log(`Clearing cache for organization: ${req.user.organizationId}`);
+
+    try {
+      await this.optimizationService.clearAllCache();
+
+      return {
+        success: true,
+        message: 'Cache cleared successfully'
+      };
+    } catch (error) {
+      this.logger.error(`Failed to clear cache:`, error);
+      throw new BadRequestException(`Cache clear failed: ${error.message}`);
+    }
   }
 }
