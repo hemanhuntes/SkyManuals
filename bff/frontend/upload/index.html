@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkyManuals - Document Upload</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .upload-section {
+            padding: 40px;
+        }
+
+        .upload-area {
+            border: 3px dashed #3498db;
+            border-radius: 15px;
+            padding: 60px 20px;
+            text-align: center;
+            background: #f8f9fa;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            margin-bottom: 30px;
+        }
+
+        .upload-area:hover {
+            border-color: #2980b9;
+            background: #ecf0f1;
+            transform: translateY(-2px);
+        }
+
+        .upload-area.dragover {
+            border-color: #27ae60;
+            background: #d5f4e6;
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 4rem;
+            color: #3498db;
+            margin-bottom: 20px;
+        }
+
+        .upload-text {
+            font-size: 1.3rem;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+
+        .upload-subtext {
+            color: #7f8c8d;
+            font-size: 1rem;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 1.1rem;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ecf0f1;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+            font-family: inherit;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .upload-button {
+            width: 100%;
+            background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+            color: white;
+            border: none;
+            padding: 18px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .upload-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(39, 174, 96, 0.3);
+        }
+
+        .upload-button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #ecf0f1;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #2ecc71);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .status-message {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .status-message.success {
+            background: #d5f4e6;
+            color: #27ae60;
+            border: 1px solid #27ae60;
+        }
+
+        .status-message.error {
+            background: #fadbd8;
+            color: #e74c3c;
+            border: 1px solid #e74c3c;
+        }
+
+        .status-message.info {
+            background: #d6eaf8;
+            color: #3498db;
+            border: 1px solid #3498db;
+        }
+
+        .file-info {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .file-info h3 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .file-info p {
+            color: #7f8c8d;
+            margin: 5px 0;
+        }
+
+        .supported-formats {
+            background: #ecf0f1;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .supported-formats h4 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .format-list {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .format-badge {
+            background: #3498db;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                margin: 10px;
+                border-radius: 15px;
+            }
+            
+            .header {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .upload-section {
+                padding: 20px;
+            }
+            
+            .upload-area {
+                padding: 40px 15px;
+            }
+            
+            .upload-icon {
+                font-size: 3rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>✈️ SkyManuals</h1>
+            <p>Upload Aviation Documents</p>
+            <button onclick="logout()" style="background: #e74c3c; color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; margin-top: 10px;">
+                Logout
+            </button>
+        </div>
+
+        <div class="upload-section">
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📄</div>
+                <div class="upload-text">Drag & Drop your document here</div>
+                <div class="upload-subtext">or click to browse files</div>
+                <input type="file" id="fileInput" class="file-input" accept=".pdf,.xml">
+            </div>
+
+            <div class="file-info" id="fileInfo">
+                <h3>Selected File</h3>
+                <p id="fileName"></p>
+                <p id="fileSize"></p>
+                <p id="fileType"></p>
+            </div>
+
+            <form id="uploadForm">
+                <div class="form-group">
+                    <label for="title">Document Title *</label>
+                    <input type="text" id="title" name="title" required placeholder="e.g., Boeing 737-800 Operations Manual">
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Description</label>
+                    <textarea id="description" name="description" placeholder="Brief description of the document content..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="version">Version</label>
+                    <input type="text" id="version" name="version" placeholder="1.0.0" value="1.0.0">
+                </div>
+
+                <div class="form-group">
+                    <label for="organizationId">Organization</label>
+                    <select id="organizationId" name="organizationId">
+                        <option value="org-1">Test Airlines</option>
+                        <option value="org-2">Demo Aviation</option>
+                        <option value="org-3">Sample Airline</option>
+                    </select>
+                </div>
+
+                <div class="progress-bar" id="progressBar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+
+                <div class="status-message" id="statusMessage"></div>
+
+                <button type="submit" class="upload-button" id="uploadButton" disabled>
+                    Upload Document
+                </button>
+            </form>
+
+            <div class="supported-formats">
+                <h4>Supported Formats</h4>
+                <div class="format-list">
+                    <span class="format-badge">PDF</span>
+                    <span class="format-badge">XML</span>
+                </div>
+                <p style="margin-top: 10px; color: #7f8c8d; font-size: 0.9rem;">
+                    Maximum file size: 10MB
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BFF_URL = 'http://localhost:3002';
+        
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const fileSize = document.getElementById('fileSize');
+        const fileType = document.getElementById('fileType');
+        const uploadForm = document.getElementById('uploadForm');
+        const uploadButton = document.getElementById('uploadButton');
+        const progressBar = document.getElementById('progressBar');
+        const progressFill = document.getElementById('progressFill');
+        const statusMessage = document.getElementById('statusMessage');
+        const titleInput = document.getElementById('title');
+
+        let selectedFile = null;
+        let authToken = null;
+        let currentUser = null;
+
+        // Check authentication on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            checkAuthentication();
+        });
+
+        function checkAuthentication() {
+            authToken = localStorage.getItem('skymanuals_token');
+            const userStr = localStorage.getItem('skymanuals_user');
+            
+            if (!authToken || !userStr) {
+                showStatus('❌ Please login first', 'error');
+                uploadButton.disabled = true;
+                
+                // Redirect to login immediately
+                window.location.href = 'http://localhost:3002/frontend/auth/login.html';
+                return;
+            }
+
+            try {
+                currentUser = JSON.parse(userStr);
+                showStatus(`✅ Welcome, ${currentUser.name}! (${currentUser.roles.join(', ')})`, 'success');
+                
+                // Set default organization
+                document.getElementById('organizationId').value = currentUser.organizationId;
+                
+                // Check permissions
+                if (!currentUser.roles.includes('author') && !currentUser.roles.includes('admin')) {
+                    showStatus('⚠️ You need author or admin role to upload documents', 'error');
+                    uploadButton.disabled = true;
+                }
+            } catch (error) {
+                showStatus('❌ Invalid user data. Please login again.', 'error');
+                localStorage.removeItem('skymanuals_token');
+                localStorage.removeItem('skymanuals_user');
+                window.location.href = 'http://localhost:3002/frontend/auth/login.html';
+            }
+        }
+
+        // Drag and drop functionality
+        uploadArea.addEventListener('click', () => fileInput.click());
+        
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+        
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+        
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleFileSelect(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileSelect(e.target.files[0]);
+            }
+        });
+
+        function handleFileSelect(file) {
+            // Validate file type
+            const allowedTypes = ['application/pdf', 'application/xml', 'text/xml'];
+            if (!allowedTypes.includes(file.type)) {
+                showStatus('Only PDF and XML files are allowed', 'error');
+                return;
+            }
+
+            // Validate file size (10MB)
+            const maxSize = 10 * 1024 * 1024; // 10MB
+            if (file.size > maxSize) {
+                showStatus('File size must be less than 10MB', 'error');
+                return;
+            }
+
+            selectedFile = file;
+            
+            // Show file info
+            fileName.textContent = `📄 ${file.name}`;
+            fileSize.textContent = `📏 Size: ${formatFileSize(file.size)}`;
+            fileType.textContent = `📋 Type: ${file.type}`;
+            
+            fileInfo.style.display = 'block';
+            uploadButton.disabled = false;
+
+            // Auto-fill title if empty
+            if (!titleInput.value) {
+                const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '');
+                titleInput.value = nameWithoutExt;
+            }
+
+            hideStatus();
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (!selectedFile) {
+                showStatus('Please select a file first', 'error');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('title', document.getElementById('title').value);
+            formData.append('description', document.getElementById('description').value);
+            formData.append('version', document.getElementById('version').value);
+            formData.append('organizationId', document.getElementById('organizationId').value);
+
+            try {
+                uploadButton.disabled = true;
+                uploadButton.textContent = 'Uploading...';
+                progressBar.style.display = 'block';
+                showStatus('Uploading document...', 'info');
+
+                // Simulate progress
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += Math.random() * 30;
+                    if (progress > 90) progress = 90;
+                    progressFill.style.width = progress + '%';
+                }, 200);
+
+                const response = await fetch(`${BFF_URL}/api/manuals/upload`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: formData
+                });
+
+                clearInterval(progressInterval);
+                progressFill.style.width = '100%';
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    showStatus('✅ Document uploaded successfully!', 'success');
+                    
+                    // Reset form after successful upload
+                    setTimeout(() => {
+                        uploadForm.reset();
+                        selectedFile = null;
+                        fileInfo.style.display = 'none';
+                        uploadButton.disabled = true;
+                        uploadButton.textContent = 'Upload Document';
+                        progressBar.style.display = 'none';
+                        progressFill.style.width = '0%';
+                    }, 2000);
+                } else {
+                    showStatus(`❌ Upload failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`❌ Upload error: ${error.message}`, 'error');
+            } finally {
+                uploadButton.disabled = false;
+                uploadButton.textContent = 'Upload Document';
+            }
+        });
+
+        function showStatus(message, type) {
+            statusMessage.textContent = message;
+            statusMessage.className = `status-message ${type}`;
+            statusMessage.style.display = 'block';
+        }
+
+        function hideStatus() {
+            statusMessage.style.display = 'none';
+        }
+
+        // Logout function
+        function logout() {
+            localStorage.removeItem('skymanuals_token');
+            localStorage.removeItem('skymanuals_user');
+            window.location.href = 'http://localhost:3002/frontend/auth/login.html';
+        }
+
+        // Initialize
+        hideStatus();
+    </script>
+</body>
+</html>

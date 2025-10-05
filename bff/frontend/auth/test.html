@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkyManuals - Login Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-result { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        button { padding: 10px 20px; margin: 10px; }
+    </style>
+</head>
+<body>
+    <h1>🔧 SkyManuals Login Test</h1>
+    
+    <div id="results"></div>
+    
+    <button onclick="testAPI()">Test API Connection</button>
+    <button onclick="testLogin()">Test Login</button>
+    <button onclick="testForm()">Test Form</button>
+    
+    <script>
+        const BFF_URL = 'http://localhost:3002';
+        const resultsDiv = document.getElementById('results');
+        
+        function addResult(message, type = 'success') {
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            resultsDiv.appendChild(div);
+        }
+        
+        async function testAPI() {
+            addResult('Testing API connection...', 'success');
+            try {
+                const response = await fetch(`${BFF_URL}/health`);
+                const data = await response.json();
+                addResult(`✅ API Health: ${data.status}`, 'success');
+            } catch (error) {
+                addResult(`❌ API Error: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testLogin() {
+            addResult('Testing login...', 'success');
+            try {
+                const response = await fetch(`${BFF_URL}/api/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: 'author@testairlines.com',
+                        organizationId: 'org-1'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    addResult(`✅ Login Success: ${data.user.name} (${data.user.roles.join(', ')})`, 'success');
+                    addResult(`Token: ${data.token.substring(0, 50)}...`, 'success');
+                } else {
+                    addResult(`❌ Login Failed: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                addResult(`❌ Login Error: ${error.message}`, 'error');
+            }
+        }
+        
+        function testForm() {
+            addResult('Testing form elements...', 'success');
+            
+            const form = document.getElementById('loginForm');
+            const email = document.getElementById('email');
+            const org = document.getElementById('organizationId');
+            
+            if (form) {
+                addResult('✅ Form element found', 'success');
+            } else {
+                addResult('❌ Form element NOT found', 'error');
+            }
+            
+            if (email) {
+                addResult('✅ Email input found', 'success');
+            } else {
+                addResult('❌ Email input NOT found', 'error');
+            }
+            
+            if (org) {
+                addResult('✅ Organization select found', 'success');
+            } else {
+                addResult('❌ Organization select NOT found', 'error');
+            }
+        }
+        
+        // Auto-test on load
+        document.addEventListener('DOMContentLoaded', () => {
+            addResult('🚀 Test page loaded', 'success');
+            setTimeout(testAPI, 1000);
+        });
+    </script>
+    
+    <form id="loginForm" style="margin-top: 20px;">
+        <div>
+            <label for="email">Email:</label>
+            <input type="email" id="email" value="author@testairlines.com">
+        </div>
+        <div>
+            <label for="organizationId">Organization:</label>
+            <select id="organizationId">
+                <option value="org-1">Test Airlines</option>
+            </select>
+        </div>
+    </form>
+</body>
+</html>

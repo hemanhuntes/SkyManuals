@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkyManuals - Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            color: #7f8c8d;
+            font-size: 1.1rem;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #2c3e50;
+            font-size: 1.1rem;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ecf0f1;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+            font-family: inherit;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        .login-button {
+            width: 100%;
+            background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+            color: white;
+            border: none;
+            padding: 18px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 20px;
+        }
+
+        .login-button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(52, 152, 219, 0.3);
+        }
+
+        .login-button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .demo-accounts {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .demo-accounts h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+
+        .demo-account {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-left: 4px solid #3498db;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .demo-account:hover {
+            transform: translateX(5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .demo-account:last-child {
+            margin-bottom: 0;
+        }
+
+        .demo-account .role {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .demo-account .email {
+            color: #7f8c8d;
+            font-size: 0.9rem;
+        }
+
+        .status-message {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .status-message.success {
+            background: #d5f4e6;
+            color: #27ae60;
+            border: 1px solid #27ae60;
+        }
+
+        .status-message.error {
+            background: #fadbd8;
+            color: #e74c3c;
+            border: 1px solid #e74c3c;
+        }
+
+        .status-message.info {
+            background: #d6eaf8;
+            color: #3498db;
+            border: 1px solid #3498db;
+        }
+
+        .app-links {
+            margin-top: 30px;
+            text-align: center;
+        }
+
+        .app-links h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+
+        .app-link {
+            display: inline-block;
+            background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            margin: 5px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .app-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(39, 174, 96, 0.3);
+        }
+
+        .app-link:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        @media (max-width: 480px) {
+            .login-container {
+                padding: 20px;
+                margin: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="header">
+            <h1>✈️ SkyManuals</h1>
+            <p>Aviation Document Management</p>
+        </div>
+
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <input type="email" id="email" name="email" required placeholder="your.email@airline.com">
+            </div>
+
+            <div class="form-group">
+                <label for="organizationId">Organization</label>
+                <select id="organizationId" name="organizationId" required>
+                    <option value="">Select Organization</option>
+                    <option value="org-1">Test Airlines</option>
+                    <option value="org-2">Demo Aviation</option>
+                    <option value="org-3">Sample Airline</option>
+                </select>
+            </div>
+
+            <div class="status-message" id="statusMessage"></div>
+
+            <button type="submit" class="login-button" id="loginButton">
+                Login
+            </button>
+        </form>
+
+        <div class="demo-accounts">
+            <h3>Demo Accounts</h3>
+            
+            <div class="demo-account" onclick="fillDemoAccount('pilot@testairlines.com', 'org-1')">
+                <div class="role">👨‍✈️ Pilot</div>
+                <div class="email">pilot@testairlines.com</div>
+            </div>
+            
+            <div class="demo-account" onclick="fillDemoAccount('author@testairlines.com', 'org-1')">
+                <div class="role">✍️ Author</div>
+                <div class="email">author@testairlines.com</div>
+            </div>
+            
+            <div class="demo-account" onclick="fillDemoAccount('reviewer@testairlines.com', 'org-1')">
+                <div class="role">🔍 Reviewer</div>
+                <div class="email">reviewer@testairlines.com</div>
+            </div>
+            
+            <div class="demo-account" onclick="fillDemoAccount('admin@testairlines.com', 'org-1')">
+                <div class="role">👑 Admin</div>
+                <div class="email">admin@testairlines.com</div>
+            </div>
+        </div>
+
+        <div class="app-links">
+            <h3>Applications</h3>
+            <a href="#" class="app-link" id="uploadLink" disabled>📤 Upload Documents</a>
+            <a href="#" class="app-link" id="viewerLink" disabled>👁️ View Manuals</a>
+        </div>
+    </div>
+
+    <script>
+        const BFF_URL = 'http://localhost:3002';
+        
+        const loginForm = document.getElementById('loginForm');
+        const loginButton = document.getElementById('loginButton');
+        const statusMessage = document.getElementById('statusMessage');
+        const uploadLink = document.getElementById('uploadLink');
+        const viewerLink = document.getElementById('viewerLink');
+
+        // Fill demo account
+        function fillDemoAccount(email, organizationId) {
+            document.getElementById('email').value = email;
+            document.getElementById('organizationId').value = organizationId;
+        }
+
+        // Login form submission
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const email = document.getElementById('email').value;
+            const organizationId = document.getElementById('organizationId').value;
+
+            try {
+                loginButton.disabled = true;
+                loginButton.textContent = 'Logging in...';
+                showStatus('Logging in...', 'info');
+
+                const response = await fetch(`${BFF_URL}/api/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        organizationId: organizationId
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Store token and user info
+                    localStorage.setItem('skymanuals_token', data.token);
+                    localStorage.setItem('skymanuals_user', JSON.stringify(data.user));
+                    
+                    showStatus('✅ Login successful! Redirecting...', 'success');
+                    
+                    // Enable app links
+                    enableAppLinks();
+                    
+                    // Auto-redirect based on user role
+                    setTimeout(() => {
+                        if (data.user.roles.includes('author') || data.user.roles.includes('admin')) {
+                            window.location.href = 'http://localhost:3002/frontend/upload/index.html';
+                        } else {
+                            window.location.href = 'http://localhost:3002/frontend/viewer/index.html';
+                        }
+                    }, 2000);
+                } else {
+                    showStatus(`❌ Login failed: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`❌ Login error: ${error.message}`, 'error');
+            } finally {
+                loginButton.disabled = false;
+                loginButton.textContent = 'Login';
+            }
+        });
+
+        // Enable app links with authentication
+        function enableAppLinks() {
+            uploadLink.disabled = false;
+            uploadLink.href = 'http://localhost:3002/frontend/upload/index.html';
+            viewerLink.disabled = false;
+            viewerLink.href = 'http://localhost:3002/frontend/viewer/index.html';
+        }
+
+        // Check if user is already logged in
+        function checkExistingLogin() {
+            const token = localStorage.getItem('skymanuals_token');
+            const user = localStorage.getItem('skymanuals_user');
+            
+            if (token && user) {
+                try {
+                    const userData = JSON.parse(user);
+                    showStatus(`Welcome back, ${userData.name}!`, 'success');
+                    enableAppLinks();
+                } catch (error) {
+                    // Invalid stored data, clear it
+                    localStorage.removeItem('skymanuals_token');
+                    localStorage.removeItem('skymanuals_user');
+                }
+            }
+        }
+
+        function showStatus(message, type) {
+            statusMessage.textContent = message;
+            statusMessage.className = `status-message ${type}`;
+            statusMessage.style.display = 'block';
+        }
+
+        function hideStatus() {
+            statusMessage.style.display = 'none';
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            checkExistingLogin();
+        });
+
+        // Logout function (can be called from other pages)
+        window.logout = function() {
+            localStorage.removeItem('skymanuals_token');
+            localStorage.removeItem('skymanuals_user');
+            window.location.href = 'login.html';
+        };
+    </script>
+</body>
+</html>
